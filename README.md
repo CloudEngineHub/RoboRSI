@@ -118,7 +118,7 @@ roborsi web   # evolution dashboard :8787 · Manager cockpit :8795
 Scan to join the WeChat user group (the QR code is refreshed periodically):
 
 <p align="center">
-  <img src="assets/wechat-group.jpg" alt="RoboRSI WeChat user group QR code" width="320">
+  <img src="assets/wechat-group-20261007.jpg" alt="RoboRSI WeChat user group QR code" width="320">
 </p>
 
 ## Citation

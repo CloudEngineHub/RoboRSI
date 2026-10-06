@@ -111,7 +111,7 @@ roborsi web   # 演化看板 :8787 · Manager 控制台 :8795
 扫码加入微信用户交流群(二维码会定期更新):
 
 <p align="center">
-  <img src="assets/wechat-group.jpg" alt="RoboRSI 微信用户交流群二维码" width="320">
+  <img src="assets/wechat-group-20261007.jpg" alt="RoboRSI 微信用户交流群二维码" width="320">
 </p>
 
 ## 引用
