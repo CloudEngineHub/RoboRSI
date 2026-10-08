@@ -161,7 +161,7 @@ Every `args` entry in `harness.args` and `extra_args` must:
 # Workflow
 
 A reviewer (`review_base_skill_harness`) reads the skill's frontmatter,
-constructs the `scripts/test_base_skill.py` invocation, runs it, parses the
+constructs the `roborsi/agents/evolution/skill_harness.py` invocation, runs it, parses the
 JSON output, and APPROVES iff `min_seeds_passing` is met.
 
 If a skill has `skip_harness: true`, the reviewer accepts only with explicit

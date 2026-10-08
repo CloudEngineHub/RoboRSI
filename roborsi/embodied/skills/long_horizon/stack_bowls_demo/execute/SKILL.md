@@ -9,7 +9,7 @@ description: Long-horizon entry point for BiCoord stack_bowls. Execution runs th
 # stack_bowls_demo / execute
 
 Long-horizon execution runs through the 3-role triangle
-(`LHPlanner → LHExecutor → LHReviewer`), driven by `_run_lh_3role` in
+(`LHPlanner → LHExecutor → LHReviewer`), driven by `run_long_horizon_episode` in
 `roborsi.channels.agent.feishu.bot_agent`. This skill dir is the LH
 task's published identity: `discover()` registers `stack_bowls_demo.execute`,
 the task wiki (`wiki.md`) lives here, and `_detect_lh_intent` enumerates

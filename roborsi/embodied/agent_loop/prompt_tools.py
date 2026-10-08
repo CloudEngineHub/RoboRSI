@@ -26,10 +26,8 @@ _COMPOUND_CACHE: dict[tuple[str, str], Any] = {}
 
 
 def atomic_compounds_enabled() -> bool:
-    """Return whether released atomic compounds belong to the runtime surface."""
-    import os
-
-    return os.environ.get("ROBORSI_ATOMIC_COMPOUND", "1") != "0"
+    """Released atomic compounds are always part of the runtime surface."""
+    return True
 
 
 # ---- Tools that exist for INTERNAL base-skill composition only and must NEVER
@@ -37,6 +35,7 @@ def atomic_compounds_enabled() -> bool:
 #      after the episode by the simulator/harness. ----
 _ENGINEER_HIDDEN_TOOLS: set[str] = {
     "check_task_success",
+    "execute_with_pi05",  # Removed from the supported runtime surface.
     # PURE-VISION: object-ground-truth tools. Deleted from the repo; also
     # hidden here so a stale plugin/registry entry can never resurface them in
     # the Engineer's tool surface. A camera-only robot can't read object world
@@ -200,9 +199,9 @@ def _maybe_shortlist_skills(instruction: str, task_name: str,
     if ns != "robotwin":
         return None
     try:
-        from roborsi.agents.engineer import _build_skill_index, _count_active_skills
-        from roborsi.agents.skill_history import get_success_counts
-        from roborsi.agents.skill_selector import SkillSelector
+        from roborsi.agents.roles.engineer import _build_skill_index, _count_active_skills
+        from roborsi.agents.memory.skill_history import get_success_counts
+        from roborsi.agents.memory.skill_selector import SkillSelector
         # Always run the Sonnet selector — it surfaces specialized skills the
         # Engineer skips among the crowd even at ~44 active (verified: it picks
         # pick_actor_by_contact_point + grasp_then_lift_graspgen for a bowl). Only
@@ -261,6 +260,7 @@ SYSTEM_PROMPT = _system_prompt()
 def _spec_from_skill(sk, type_map: dict[str, str]) -> dict[str, Any]:
     """One OpenAI/Anthropic tool spec from a skill's SKILL.md frontmatter.
     Shared by the base-tool and atomic-compound spec builders."""
+    type_map = {**type_map, **{t: t for t in ("string", "integer", "number", "boolean", "array", "object", "null")}}
     fm = sk.frontmatter or {}
     desc = (fm.get("description") or "").strip()
     if isinstance(fm.get("when_to_use"), str):
@@ -283,6 +283,10 @@ def _spec_from_skill(sk, type_map: dict[str, str]) -> dict[str, Any]:
             prop["default"] = meta["default"]
         if "enum" in meta:
             prop["enum"] = meta["enum"]
+        # Preserve nested JSON schema instead of silently dropping item contracts.
+        for key in ("items", "properties", "additionalProperties", "minItems", "maxItems", "minimum", "maximum"):
+            if key in meta:
+                prop[key] = meta[key]
         properties[arg_name] = prop
         if meta.get("required"):
             required.append(arg_name)
@@ -372,10 +376,13 @@ def _build_tool_specs(ns: str = "robotwin", task: str = "") -> list[dict[str, An
                              "Generated code may only compose literal public "
                              "skills through `_dispatch_tool`; it cannot read "
                              "`state.env` or backend internals. "
-                             "`skill_md` MUST include YAML frontmatter with a "
-                             "`harness:` block (sim_task + args + pass_criteria). "
-                             "Goes to skill_review/ for Claude 3-gate approval; "
-                             "applied next LH run if approved."),
+                             "Use synchronous dispatch_runtime(state,args); every "
+                             "_dispatch_tool returns (result, observation), and every exit "
+                             "must return an actual observation. `skill_md` MUST declare "
+                             "metadata.harness: sim_task, seeds (at least two distinct integers), "
+                             "args (list of dictionaries), pass_criteria.kind=simulator_task_success, "
+                             "min_seeds_passing>=2. Code goes to independent Manager review "
+                             "and real simulator validation before cross-task publication."),
             "parameters": {"type": "object",
                 "properties": {"name": {"type": "string"},
                                 "category": {"type": "string"},
@@ -456,6 +463,7 @@ def _dispatch_meta_tool(
     args: dict[str, Any],
     *,
     ns: str = "robotwin",
+    source_workdir=None,
 ) -> dict[str, Any] | None:
     """Handle the codebase-introspection + skill-proposal meta tools.
     Returns a result dict if the tool is meta, None otherwise so callers
@@ -500,8 +508,10 @@ def _dispatch_meta_tool(
                 "ok": False,
                 "reason": "skill proposals are disabled in eval mode",
             }
-        from roborsi.channels.core.agent import _enqueue_proposal
+        from roborsi.agents.evolution.proposal_queue import enqueue as _enqueue_proposal
         kind = "new" if name == "propose_new_skill" else "update"
-        pid_or_msg = _enqueue_proposal(kind=kind, **args)
+        from roborsi.agents.evolution.proposal_origin import attach_origin
+        fields = attach_origin(args, source_workdir)
+        pid_or_msg = _enqueue_proposal(kind=kind, namespace=ns, **fields)
         return {"ok": True, "proposal": pid_or_msg}
     return None

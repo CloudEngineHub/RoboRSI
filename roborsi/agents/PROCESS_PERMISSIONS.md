@@ -25,7 +25,7 @@ genuinely unsure).
 | **wiki · execution traces** (Successful / Failed) | **Framework auto-writes OBSERVED FACTS** after every atomic (`append_success_trace` writes the verified success; `append_failure_trace` writes seed/outcome/tool-sequence only). |
 | **wiki · Failed-run Reviewer diagnosis** (root_cause / next_action) | **Reviewer PROPOSES** (auto-queued to `wiki_review/` as a `failure_hypothesis`) → **Manager approves** (`resolve_wiki_hypothesis(approve=True)` → written into `## Manager-approved leads`). Gated: an unverified guess NEVER enters the wiki body, so it can't steer the next plan. Both Reviewer (author) and Manager (approver) must look. |
 | **wiki · Key measurements** | **Reviewer PROPOSES** (`propose_measurement` → `wiki_review/` queue) → **approver applies** (`apply_measurement_proposal`). Gated. |
-| **skill code** (`base/robotwin/*/policy.py`, new skills) | **Reviewer / Manager PROPOSE** (→ `skill_review/` queue) → **approver applies** (`apply_selfevo_proposal.py`, base-skill changes run the harness gate first). Gated. |
+| **skill code** (`base/robotwin/*/policy.py`, new skills) | **Reviewer / Manager PROPOSE** (→ `skill_review/` queue) → **approver applies** (`apply_proposal.py`, base-skill changes run the harness gate first). Gated. |
 
 ## Per-role summary
 
@@ -42,7 +42,7 @@ genuinely unsure).
 - **Manager** (persistent CC): the **approver** (for now). Reviews each pending
   proposal against the 7 rules
   (`_lib/human_review/review_selfevo_proposal/SKILL.md`), runs the harness gate
-  for base-skill changes, then **applies** (`apply_selfevo_proposal.py` /
+  for base-skill changes, then **applies** (`apply_proposal.py` /
   `task_wiki.apply_measurement_proposal`). May also correct/prune the wiki and
   roll the persistent sessions. Escalates to the human only when genuinely
   unsure. (Approval authority is configurable: human or Manager — currently

@@ -11,8 +11,10 @@ set -euo pipefail
 
 output="${1:-$HOME/.roborsi/evals/suites/libero-pro-matched-pass1}"
 workers="${ROBORSI_EVAL_WORKERS:-8}"
-model="${ROBORSI_EVAL_MODEL:-gpt-5.6-sol}"
+model="${ROBORSI_EVAL_MODEL:?set ROBORSI_EVAL_MODEL to the model id served by your endpoint}"
 
+export ROBORSI_OPENAI_TRANSPORT="${ROBORSI_OPENAI_TRANSPORT:-responses}"
+export ROBORSI_LIBERO_SUITES="${ROBORSI_LIBERO_SUITES:-libero_goal_task,libero_goal_object,libero_goal_swap,libero_goal_lan,libero_spatial_task,libero_spatial_object,libero_spatial_swap,libero_spatial_lan,libero_object_task,libero_object_object,libero_object_swap,libero_object_lan}"
 exec roborsi eval-suite \
   --backend libero-pro \
   --atomic libero_pick_place \
@@ -25,5 +27,4 @@ exec roborsi eval-suite \
   --engineer-model "${model}" \
   --reviewer-model "${model}" \
   --reasoning-effort medium \
-  --code-on \
   --out "${output}"

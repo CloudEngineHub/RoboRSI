@@ -4,8 +4,8 @@ import os
 
 import numpy as np
 
-from roborsi.agents.engineer import _configure_perception_backend
-from roborsi.agents.planner import _libero_runtime_routing_block
+from roborsi.agents.roles.engineer import _configure_perception_backend
+from roborsi.agents.roles.planner import _libero_runtime_routing_block
 from roborsi.embodied.skills.base._lib.libero._perception import (
     _project_world_to_head_pixel,
     _requires_orbit_product_identity,

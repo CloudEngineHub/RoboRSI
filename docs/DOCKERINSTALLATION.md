@@ -9,7 +9,7 @@ If you do not want Docker, use [INSTALLATION.md](./INSTALLATION.md).
 Start from a clean clone:
 
 ```bash
-git clone https://github.com/nssmd/RoboRSI.git
+git clone --recursive https://github.com/nssmd/RoboRSI.git
 cd RoboRSI
 ```
 
@@ -51,7 +51,7 @@ docker run -it -v ~/.roborsi:/root/.roborsi --rm roborsi manager
 
 ```bash
 docker run -v ~/.roborsi:/root/.roborsi \
-  -p 8787:8787 -p 8795:8795 \
+  -p 8787:8787 \
   roborsi web --host 0.0.0.0
 ```
 

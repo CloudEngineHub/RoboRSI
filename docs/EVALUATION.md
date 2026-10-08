@@ -1,11 +1,13 @@
-# Frozen Evaluation
+# Evolve and Frozen Modes
 
-RoboRSI has two explicit runtime modes:
+RoboRSI has two runtime modes:
 
-- `evolve`: normal operation; validated experience may update persistent
-  capability.
-- `eval`: frozen operation; the current release executes without changing what
-  later runs can do.
+- `evolve`: normal operation; the Reviewer may propose and the Manager may
+  publish skill changes, and episodes update the task wiki and plan archive.
+- `frozen`: evolution is disabled. No skill, task wiki, plan archive,
+  proposal or training data is written. The Planner and Reviewer still run
+  as their persistent role sessions, as in evolve mode. (`eval` is accepted
+  as a legacy name.)
 
 ## Run an atomic evaluation
 
@@ -67,7 +69,7 @@ roborsi eval libero_pick_place \
 - no arbitrary outer-agent Python execution or non-atomic skill execution.
 
 Direct skill runs that use `DataStore` are redirected to
-`~/.roborsi/evals/` while eval mode is active.
+`~/.roborsi/evals/` while frozen mode is active.
 
 ## Run LIBERO short task-level pass@K
 
@@ -78,13 +80,10 @@ roborsi eval-suite \
   --seed-start 0 \
   --workers 4 \
   --tool-budget 40 \
-  --code-on \
   --out ~/.roborsi/evals/libero-pro-pass5
 ```
 
-`--code-on` is the default and exposes released, code-backed compound skills
-without allowing any capability write-back. Use `--code-off` only for the
-matched ablation.
+Released code-backed compound skills are always exposed.
 
 The suite runner:
 
@@ -111,15 +110,49 @@ policy differs from `campaign.json`.
 
 ## Reproduce a current-release LIBERO-PRO Pass 1
 
-After configuring the official LIBERO-PRO BDDL and init-state directories and
-starting PyRoKi, run:
+`scripts/reproduce_libero_pro.sh` performs every step below. To run them by
+hand, configure the official LIBERO-PRO BDDL and init-state directories, start
+PyRoKi (and optionally GraspGen), then run:
 
 ```bash
-ROBORSI_EVAL_MODEL=gpt-5.6-sol \
+export OPENAI_API_KEY=...                 # OpenAI-compatible endpoint key
+export OPENAI_BASE_URL=...                # optional; default api.openai.com
+export ROBORSI_OPENAI_TRANSPORT=responses # or chat_completions
+ROBORSI_EVAL_MODEL=<model id> \
 ROBORSI_EVAL_WORKERS=8 \
 scripts/run_libero_pro_matched_pass1.sh \
   ~/.roborsi/evals/suites/libero-pro-matched-pass1
 ```
+
+Environment used by the reproduction scripts:
+
+| Variable | Meaning |
+|---|---|
+| `ROBORSI_EVAL_MODEL` | Model id for the Planner, Engineer and Reviewer (required). |
+| `ROBORSI_OPENAI_TRANSPORT` | `responses` (default in the scripts) or `chat_completions`. |
+| `ROBORSI_LIBERO_BDDLDIR`, `ROBORSI_LIBERO_INITDIR` | Official LIBERO-PRO asset directories. |
+| `ROBORSI_PYROKI_PORT` | Port of the PyRoKi IK / trajectory service. |
+| `GRASPGEN_HOST`, `GRASPGEN_PORT` | GraspGen grasp service. Leave `GRASPGEN_PORT` empty to disable it; grasps then use the fallback planner. |
+| `ROBORSI_EVAL_WORKERS` | Parallel episodes (default 8). Each worker loads its own perception models (about 5 GB of GPU memory). |
+| `ROBORSI_PERCEPTION_DEVICE` | Device for the perception models (default CUDA when available); set `cpu` when GPU memory is short. |
+| `ROBORSI_EPISODE_MAX_ROUNDS` | Maximum Planner–Engineer–Reviewer rounds within one episode (default 6). |
+| `ROBORSI_ROLE_SESSION` | Planner and Reviewer run as persistent agent-CLI sessions, one per role and task, and the Manager as one persistent session across all tasks; all are compacted once they exceed `ROBORSI_SESSION_ROLL_CHARS` (default 600000) (`codex` for OpenAI models, `claude` otherwise; override with `ROBORSI_ROLE_BACKEND`). The same sessions are used in frozen mode. `0` uses stateless API calls. |
+| `ROBORSI_GATE_SEEDS`, `ROBORSI_GATE_MIN_PASS` | Development seeds (default 21,22) and required successes for the episode-level gate the Manager uses when a skill change has no harness of its own. |
+| `ROBORSI_REVIEW_MODE` / `--review` | `manager` (default): skill code that passes the simulator gate is published by the Manager. `human`: it is not published; each change is listed with its diff, the Manager's reason and the gate result at `ROBORSI_HOME/proposal_html/index.html`, to be approved with `python -m roborsi.agents.evolution.apply_proposal <id> --skip-harness` or rejected with `--reject`. |
+| `ROBORSI_REPRO_ROOT` | Where the one-click script keeps environments and assets (default `~/.roborsi/repro`). |
+
+Within an episode, the Planner plans, the Engineer executes, and the Reviewer
+judges the attempt from public evidence only (plan, Engineer summary, and the
+sanitized tool trace). If the Reviewer asks to continue, the Planner re-plans
+from the current scene with the Reviewer's diagnosis. The scene is not reset,
+all rounds share one tool budget, and `ROBORSI_EPISODE_MAX_ROUNDS` (default 6)
+caps the number of rounds. In evolve mode, every episode runs in a
+fresh process and its journal row is written as soon as it finishes. The
+Manager (`roborsi/agents/roles/manager/cycle.py`) runs continuously in the background:
+whenever an episode queues a wiki hypothesis, plan promotion or skill
+proposal, it reviews it, gates code changes in the simulator, and publishes
+approved ones, which every episode started afterwards uses. The simulator predicate is evaluated once, after the
+last round, and is never shown to any role.
 
 This profile is fixed to the complete 120-task short panel, seed `0`, one
 attempt per task, tool budget `80`, and reasoning effort `medium`. The campaign
@@ -171,8 +204,22 @@ evolution campaign.
 For an existing CLI or service process:
 
 ```bash
-export ROBORSI_RUN_MODE=eval
+export ROBORSI_RUN_MODE=frozen
 ```
 
 The same runtime guards apply. Long-horizon evaluation is not exposed by the
 frozen CLI yet; `roborsi eval` currently accepts atomic tasks only.
+
+## LIBERO-Plus one-click run
+
+```bash
+export OPENAI_API_KEY=... ROBORSI_EVAL_MODEL=...
+scripts/reproduce_libero_plus.sh
+```
+
+Installs the environment, checks out LIBERO-Plus (sylvestf/LIBERO-plus at
+4976dc3) with its official assets, and runs the current release frozen on the
+840-instance panel (`--panel libero_plus_840`: 7 perturbation types x 120,
+seed 5). It ends with the journal audit and a success table per perturbation
+type (`python -m roborsi.evaluation.panels breakdown <dir>`). State lives in
+`~/.roborsi-libero-plus` so it does not overwrite a LIBERO-PRO setup.

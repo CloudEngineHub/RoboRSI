@@ -96,7 +96,7 @@ def audit_libero_short_suite(
             errors.append(f"journal row {index} uses seed outside manifest: {seed}")
         if row.get("backend") != campaign.get("backend"):
             errors.append(f"journal row {index} backend differs from campaign")
-        if row.get("run_mode") != "eval":
+        if row.get("run_mode") not in ("frozen", "eval"):
             errors.append(f"journal row {index} is not frozen eval mode")
 
         verdict = row.get("verdict")

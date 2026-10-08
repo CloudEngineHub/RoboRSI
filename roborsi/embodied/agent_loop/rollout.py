@@ -137,6 +137,15 @@ def run_rollout(
     LLM's context across atomics + retries. The final messages list is
     returned in RolloutResult.messages for the caller to feed into the
     next call."""
+    remote_loop = getattr(env, "run_tool_loop", None)
+    if callable(remote_loop):
+        return remote_loop(
+            seed=seed, task_name=task_name, instruction=instruction,
+            expected_on_success=expected_on_success, model=model,
+            tool_budget=tool_budget, workdir=workdir,
+            use_sim_predicate=use_sim_predicate,
+            restrict_to_names=restrict_to_names, prior_messages=prior_messages,
+        )
     workdir = (workdir or Path("/tmp/roborsi-zeroshot")) / f"{task_name}-{seed}"
     workdir.mkdir(parents=True, exist_ok=True)
     rollout = Rollout(task=task_name, seed=seed)
@@ -453,6 +462,11 @@ def run_rollout(
     except Exception as exc:
         (workdir / "trace_error.txt").write_text(f"{type(exc).__name__}: {exc}")
 
+    if state._sim_contaminated:
+        # Trace is already preserved. A leaked worker can still mutate state,
+        # so never call the final adjudicator or record a task failure here.
+        raise TimeoutError(f"Tool timeout left simulator contaminated; trace preserved at {workdir / 'trace.json'}")
+
     vlm_declared = success
     real_success = env.check_success() if use_sim_predicate else None
     if use_sim_predicate:
@@ -473,7 +487,10 @@ def run_rollout(
     rollout.outcome = outcome
     # Evolve mode keeps only simulator-confirmed success demos. Frozen eval
     # preserves both verdict classes and their source frames as evidence.
-    _demo_video = _finalize_demo_video(workdir, task_name, seed, success)
+    # Without the simulator verdict (a round inside a multi-round episode)
+    # frames are kept for the Reviewer; the caller finalizes after the episode.
+    _demo_video = (_finalize_demo_video(workdir, task_name, seed, success)
+                   if use_sim_predicate else None)
     rollout.meta = {
         "backend": env.backend_name,
         "collector": "rollout_vlm",
@@ -706,8 +723,14 @@ def _dispatch(state: DispatchContext, call: dict[str, Any]) -> tuple[dict[str, A
     policy.py) without touching this file.
     """
     name = call.get("tool")
+    if name == "execute_with_pi05":
+        return ({"ok": False, "reason": "Tool removed from this runtime"}, state.env.take_snapshot())
+    from roborsi.embodied.agent_loop.prompt_tools import _hidden_tools
+    if name in _hidden_tools(state.ns):
+        # Hidden tools are refused at dispatch, not only left off the list.
+        return ({"ok": False, "reason": f"unknown tool '{name}'"}, state.env.take_snapshot())
     args = call.get("args") or {}
-    meta_result = _dispatch_meta_tool(name, args, ns=state.ns)
+    meta_result = _dispatch_meta_tool(name, args, ns=state.ns, source_workdir=state.workdir)
     if meta_result is not None:
         return (meta_result, state.env.take_snapshot())
     if state._tool_handlers is None:

@@ -4,7 +4,7 @@ LIBERO's Franka is driven through robosuite's JOINT_POSITION controller: an
 8-D action ``[dq1..dq7, gripper]`` (arm joint deltas scaled to ~``JOINT_STEP``
 rad at |cmd|=1; gripper ``+1`` close / ``-1`` open). Reaching a world EE pose is
 a WHOLE-ARM inverse-kinematics servo: a PyRoKi least-squares solver (running in
-an isolated conda env, reached over ZMQ — see ``scripts/pyroki_ik_server.py``)
+an isolated conda env, reached over ZMQ — see ``roborsi/embodied/motion/pyroki/server.py``)
 returns the 7 arm joints that place the EE at the target, and this servo drives
 the JOINT_POSITION controller monotonically to that config (``dq = q_goal -
 q_cur`` clipped by ``JOINT_STEP``). Because the goal config is a full IK solution
@@ -572,8 +572,35 @@ class LiberoControl:
         post_gap = self._gripper_gap()
         if close:
             self._gripper_classifier().confirm_close(pre_gap=pre_gap, post_gap=post_gap)
+            try:
+                position, quaternion, _ = self.read_pose()
+                generation = self.env.sensor_generation()
+                attempt_token = getattr(
+                    self.env,
+                    "_libero_grasp_attempt_token",
+                    None,
+                )
+                self.env._libero_grasp_closure_pose = {
+                    "generation": generation,
+                    "reset_generation": (
+                        int(generation[0])
+                        if isinstance(generation, (tuple, list))
+                        and len(generation) == 2
+                        else None
+                    ),
+                    "attempt_token": (
+                        attempt_token
+                        if isinstance(attempt_token, str) and attempt_token
+                        else None
+                    ),
+                    "position": np.asarray(position, dtype=float).copy(),
+                    "quaternion_xyzw": np.asarray(quaternion, dtype=float).copy(),
+                }
+            except (AttributeError, TypeError, ValueError):
+                self.env._libero_grasp_closure_pose = None
         else:
             self._gripper_classifier().confirm_open(gap=post_gap)
+            self.env._libero_grasp_closure_pose = None
         return last
 
     def servo_to(self, pos, quat=None, gripper: str = "keep",

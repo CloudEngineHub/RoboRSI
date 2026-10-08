@@ -88,7 +88,7 @@ def _instruction_for(task: str) -> tuple[str, str]:
     plan.md carries the full recipe as the instruction).
     """
     fallback_instruction, expected = _prompts_for(task)
-    from roborsi.agents.task_wiki import _task_skill_dir
+    from roborsi.agents.memory.task_wiki import _task_skill_dir
     plan_path = _task_skill_dir(task) / "plan.md"
     if plan_path.exists():
         plan_md = plan_path.read_text(encoding="utf-8").strip()

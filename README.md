@@ -82,7 +82,7 @@ scores independently.
 ### One-click reproduction
 
 ```bash
-git clone https://github.com/nssmd/RoboRSI.git && cd RoboRSI
+git clone --recursive https://github.com/nssmd/RoboRSI.git && cd RoboRSI
 export OPENAI_API_KEY="..."   # any OpenAI-compatible Responses endpoint
 scripts/reproduce_libero_pro.sh
 ```
@@ -91,7 +91,7 @@ The script creates an isolated environment, installs RoboRSI, clones
 LIBERO-PRO, downloads the official perturbation assets from
 [`zhouxueyang/LIBERO-Pro`](https://huggingface.co/datasets/zhouxueyang/LIBERO-Pro),
 configures and health-checks the backend, starts the PyRoKi IK/trajectory
-service, launches a frozen code-on Pass-1 campaign, and audits the journal.
+service, launches a frozen Pass-1 campaign, and audits the journal.
 It is idempotent and resumable. A fresh campaign evaluates the current
 frozen release; it does not replay the cumulative results above
 (see [docs/EVALUATION.md](./docs/EVALUATION.md)).
@@ -100,6 +100,10 @@ frozen release; it does not replay the cumulative results above
 
 See [docs/INSTALLATION.md](./docs/INSTALLATION.md) and
 [docs/DOCKERINSTALLATION.md](./docs/DOCKERINSTALLATION.md).
+
+LIBERO-Plus (840 perturbation instances, frozen): `scripts/reproduce_libero_plus.sh` (see [docs/EVALUATION.md](./docs/EVALUATION.md)).
+
+Connecting your own robot: see [roborsi/embodied/embodiment/README.md](./roborsi/embodied/embodiment/README.md).
 
 ```bash
 pip install -e ".[libero]"
@@ -110,7 +114,7 @@ roborsi libero configure \
   --bddldir ./LIBERO-PRO-assets/bddl_files \
   --initdir ./LIBERO-PRO-assets/init_files
 roborsi libero doctor --backend libero --task libero_object/0 --reset
-roborsi web   # evolution dashboard :8787 · Manager cockpit :8795
+roborsi web   # evolution dashboard :8787
 ```
 
 ## Community

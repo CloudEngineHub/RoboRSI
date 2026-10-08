@@ -9,7 +9,7 @@ This guide is the native host installation path. If you want Docker-based workfl
 Start from a clean clone:
 
 ```bash
-git clone https://github.com/nssmd/RoboRSI.git
+git clone --recursive https://github.com/nssmd/RoboRSI.git
 cd RoboRSI
 ```
 
@@ -148,58 +148,14 @@ to select an installed coding-agent backend explicitly.
 
 ## 7. Launch the Web Dashboard
 
-The Web command serves the evolution dashboard and the Manager session cockpit.
-
-### Prerequisites
-
-Install the Web optional dependency if it was not installed in step 2:
+`roborsi web` serves the self-evolution dashboard (requires the `web` extra,
+`pip install -e ".[web]"`):
 
 ```bash
-pip install -e ".[web]"
+roborsi web --host 127.0.0.1 --evo-port 8787
 ```
 
-Install the frontend dependencies:
-
-```bash
-cd frontend/web
-npm install
-```
-
-### Production Mode
-
-Build the frontend and start the server:
-
-```bash
-cd frontend/web && npm run build && cd ../..
-roborsi web
-```
-
-Open:
-
-- **http://127.0.0.1:8787** for the evolution dashboard
-- **http://127.0.0.1:8795** for the Manager session cockpit
-
-### Development Mode (with hot reload)
-
-```bash
-# Terminal 1: start the APIs
-roborsi web
-
-# Terminal 2: start frontend dev server
-cd frontend/web
-npm run dev
-```
-
-Open **http://localhost:5173** in your browser. The Vite dev server proxies `/api` and `/ws` to the backend automatically.
-
-### Options
-
-```bash
-roborsi web --host 0.0.0.0 --evo-port 8787 --cockpit-port 8795
-```
-
-Use `--evo-only` or `--cockpit-only` to serve one interface. Set
-`ROBORSI_WEB_TOKEN` or pass `--token` to require bearer authentication.
+Open **http://127.0.0.1:8787**.
 
 ## 8. Configure a Real LIBERO Runtime
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures as cf
+from concurrent.futures.process import BrokenProcessPool
 import importlib.util
 import json
 import multiprocessing as mp
@@ -18,6 +19,7 @@ from typing import Any
 
 from roborsi.embodied.paths import evals_root
 from roborsi.evaluation.atomic import (
+    AGENT_MODES,
     classify_attempt_exception,
     run_atomic_attempt,
 )
@@ -26,6 +28,7 @@ _SHORT_TASK = re.compile(
     r"^libero_(spatial|object|goal)(?:_(task|object|swap|lan))?/(\d+)$"
 )
 _TASKS_PER_PROCESS = 4
+_MAX_POOL_REBUILDS = 3
 
 
 def select_libero_short_tasks(
@@ -39,7 +42,11 @@ def select_libero_short_tasks(
     ok, reason = backend.available()
     if not ok:
         raise RuntimeError(f"backend '{backend_name}' unavailable: {reason}")
-    available = sorted(task for task in backend.list_tasks() if _SHORT_TASK.match(task))
+    all_tasks = backend.list_tasks()
+    if backend_name.startswith("libero"):
+        available = sorted(task for task in all_tasks if _SHORT_TASK.match(task))
+    else:
+        available = sorted(all_tasks)
     if requested:
         requested_clean = [str(task).strip() for task in requested if str(task).strip()]
         unknown = [task for task in requested_clean if task not in available]
@@ -60,20 +67,33 @@ def run_libero_short_suite(
     tasks: list[str] | None = None,
     out_dir: Path | None = None,
     infra_retries: int = 2,
+    run_mode: str = "frozen",
     planner_model: str | None = None,
     engineer_model: str | None = None,
     reviewer_model: str | None = None,
     reasoning_effort: str | None = None,
     atomic_compound_enabled: bool = True,
+    agent_mode: str = "roborsi",
     progress=None,
+    run_all_seeds: bool = False,
 ) -> dict[str, Any]:
-    """Run task-level pass@K with exact journal resume and success protection."""
+    """Run task-level pass@K with exact journal resume and success protection.
+
+    By default a task stops after its first success (pass@K). With
+    ``run_all_seeds`` every (task, seed) episode runs, which is what the
+    episode success rate needs."""
+    from roborsi.runtime_mode import parse_mode
+    run_mode = parse_mode(run_mode).value
     if seeds < 1:
         raise ValueError("seeds must be >= 1")
     if workers < 1:
         raise ValueError("workers must be >= 1")
     if infra_retries < 0:
         raise ValueError("infra_retries must be >= 0")
+    if agent_mode not in AGENT_MODES:
+        raise ValueError(
+            f"unknown agent_mode {agent_mode!r}; expected one of {AGENT_MODES}"
+        )
 
     task_keys = select_libero_short_tasks(backend, tasks)
     if not task_keys:
@@ -84,7 +104,9 @@ def run_libero_short_suite(
         reviewer_model,
     )
     runtime = _runtime_fingerprint(backend)
-    if runtime.get("roborsi_dirty"):
+    # Evolution campaigns mutate the skill library in-tree by design; the
+    # journal + campaign_id remain the integrity anchor across restarts.
+    if runtime.get("roborsi_dirty") and run_mode != "evolve":
         raise RuntimeError(
             "eval-suite requires a clean RoboRSI worktree so one campaign "
             "cannot mix different source revisions"
@@ -100,6 +122,9 @@ def run_libero_short_suite(
     )
     root.mkdir(parents=True, exist_ok=True)
     campaign_path = root / "campaign.json"
+    if run_mode == "evolve":
+        # The Manager's compound consolidation reads this campaign's journal.
+        os.environ.setdefault("ROBORSI_COMPOUND_SOURCE_CAMPAIGNS", str(root.parent))
     journal = root / "episodes.jsonl"
     campaign = _load_or_create_campaign(
         path=campaign_path,
@@ -112,11 +137,13 @@ def run_libero_short_suite(
         workers=workers,
         tool_budget=tool_budget,
         infra_retries=infra_retries,
+        run_mode=run_mode,
         planner_model=planner_model,
         engineer_model=engineer_model,
         reviewer_model=reviewer_model,
         reasoning_effort=reasoning_effort,
         atomic_compound_enabled=atomic_compound_enabled,
+        agent_mode=agent_mode,
         journal=journal,
         created_at=started_at,
         runtime=runtime,
@@ -141,60 +168,81 @@ def run_libero_short_suite(
         if row.get("verdict") == "success"
     }
     rows = list(existing)
+    # Evolve mode: the Manager reviews proposals continuously, as soon as an
+    # episode queues one, while other episodes keep running.
+    manager = _ManagerLoop() if run_mode == "evolve" else None
+    try:
 
-    for seed in range(seed_start, seed_start + seeds):
-        pending = [
-            task_key
-            for task_key in task_keys
-            if task_key not in solved
-            and (task_key, seed) not in terminal_by_key
-        ]
-        completed = 0
-        batch_size = workers * _TASKS_PER_PROCESS
-        for offset in range(0, len(pending), batch_size):
-            payloads = []
-            for task_key in pending[offset : offset + batch_size]:
-                key = (task_key, seed)
-                payloads.append({
-                    "task_key": task_key,
-                    "atomic": atomic,
-                    "backend": backend,
-                    "seed": seed,
-                    "tool_budget": tool_budget,
-                    "infra_retries": infra_retries,
-                    "attempt_start": attempts_by_key.get(key, 0) + 1,
-                    "planner_model": planner_model,
-                    "engineer_model": engineer_model,
-                    "reviewer_model": reviewer_model,
-                    "reasoning_effort": reasoning_effort,
-                    "atomic_compound_enabled": atomic_compound_enabled,
-                })
-
-            for payload, attempt_rows in _run_payload_batch(payloads, workers):
-                task_key = str(payload["task_key"])
-                for row in attempt_rows:
-                    rows.append(row)
-                    _append_journal(journal, row)
+        for seed in range(seed_start, seed_start + seeds):
+            pending = [
+                task_key
+                for task_key in task_keys
+                if (run_all_seeds or task_key not in solved)
+                and (task_key, seed) not in terminal_by_key
+            ]
+            completed = 0
+            # Evolve mode runs each episode in a fresh process, so Manager
+            # publications are seen by every episode that starts afterwards.
+            batch_size = (max(1, len(pending)) if run_mode == "evolve"
+                          else workers * _TASKS_PER_PROCESS)
+            for offset in range(0, len(pending), batch_size):
+                payloads = []
+                for task_key in pending[offset : offset + batch_size]:
                     key = (task_key, seed)
-                    attempts_by_key[key] = max(
-                        attempts_by_key.get(key, 0),
-                        int(row.get("attempt", 1)),
-                    )
-                    if row["verdict"] in {"success", "failure"}:
-                        terminal_by_key[key] = row
-                    if row["verdict"] == "success":
-                        solved.add(task_key)
-                completed += 1
-                if progress is not None:
-                    progress(
-                        task_key,
-                        seed,
-                        completed,
-                        len(pending),
-                        attempt_rows[-1],
-                        len(solved),
-                        len(task_keys),
-                    )
+                    payloads.append({
+                        "task_key": task_key,
+                        "atomic": atomic,
+                        "backend": backend,
+                        "seed": seed,
+                        "tool_budget": tool_budget,
+                        "infra_retries": infra_retries,
+                        "run_mode": run_mode,
+                        "attempt_start": attempts_by_key.get(key, 0) + 1,
+                        "planner_model": planner_model,
+                        "engineer_model": engineer_model,
+                        "reviewer_model": reviewer_model,
+                        "reasoning_effort": reasoning_effort,
+                        "atomic_compound_enabled": atomic_compound_enabled,
+                        "agent_mode": agent_mode,
+                    })
+
+                def _record(payload, attempt_rows, seed=seed, pending=pending):
+                    nonlocal completed
+                    task_key = str(payload["task_key"])
+                    for row in attempt_rows:
+                        rows.append(row)
+                        _append_journal(journal, row)
+                        key = (task_key, seed)
+                        attempts_by_key[key] = max(
+                            attempts_by_key.get(key, 0),
+                            int(row.get("attempt", 1)),
+                        )
+                        if row["verdict"] in {"success", "failure"}:
+                            terminal_by_key[key] = row
+                        if row["verdict"] == "success":
+                            solved.add(task_key)
+                    completed += 1
+                    if manager is not None:
+                        manager.wake()
+                    if progress is not None:
+                        progress(
+                            task_key,
+                            seed,
+                            completed,
+                            len(pending),
+                            attempt_rows[-1],
+                            len(solved),
+                            len(task_keys),
+                        )
+
+                _run_payload_batch(
+                    payloads, workers, fresh_process=run_mode == "evolve",
+                    on_result=_record,
+                )
+
+    finally:
+        if manager is not None:
+            manager.stop()
 
     summary = _summarize_suite(
         campaign_id=campaign_id,
@@ -210,6 +258,7 @@ def run_libero_short_suite(
         started_at=started_at,
         journal=journal,
         campaign=campaign,
+        run_all_seeds=run_all_seeds,
     )
     summary_path = root / "summary.json"
     summary["summary_path"] = str(summary_path)
@@ -218,6 +267,101 @@ def run_libero_short_suite(
         encoding="utf-8",
     )
     return summary
+
+
+_manager_failures = 0
+
+_REVIEW_QUEUES = ("wiki_review", "plan_review", "skill_review", "policy_review")
+
+
+def _pending_reviews() -> bool:
+    from roborsi.embodied.paths import home
+    for folder in _REVIEW_QUEUES:
+        for path in (home() / folder).glob("*.json"):
+            try:
+                q = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if q.get("status", "pending") == "pending" and not q.get("manager_reviewed_at"):
+                return True
+    return False
+
+
+class _ManagerLoop:
+    """Background thread that runs a Manager cycle whenever review queues
+    hold pending items. ``wake()`` checks immediately; otherwise it polls."""
+
+    def __init__(self, poll_s: float = 15.0) -> None:
+        import threading
+        self._event = threading.Event()
+        self._stopping = False
+        self._poll_s = poll_s
+        self._thread = threading.Thread(target=self._run, name="manager-loop",
+                                        daemon=True)
+        self._thread.start()
+
+    def wake(self) -> None:
+        self._event.set()
+
+    def _run(self) -> None:
+        while not self._stopping:
+            self._event.wait(self._poll_s)
+            self._event.clear()
+            if self._stopping:
+                break
+            try:
+                while _pending_reviews() and not self._stopping:
+                    if not _run_manager_cycle():
+                        # Back off; a failing cycle must not spin.
+                        self._event.wait(min(300.0, self._poll_s * 4))
+                        break
+            except Exception as exc:  # noqa: BLE001
+                print(f"[manager] loop error: {exc}", flush=True)
+                _note_manager_failure()
+
+    def stop(self) -> None:
+        """Finish the queue left by the last episodes, then stop."""
+        self._stopping = True
+        self._event.set()
+        self._thread.join()
+        if _pending_reviews():
+            _run_manager_cycle()
+
+
+def _run_manager_cycle() -> bool:
+    """Evolve mode: after each episode the Manager reviews queued wiki
+    hypotheses, plan promotions and skill proposals, gates them in the
+    simulator, and publishes approved ones before the next episode starts."""
+    import subprocess
+    import sys
+
+    repo = Path(__file__).resolve().parents[2]
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "roborsi.agents.roles.manager.cycle"], cwd=repo,
+            env={**os.environ, "ROBORSI_RUN_MODE": "evolve",
+                 "PYTHONPATH": os.pathsep.join(
+                     [str(repo), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)},
+            capture_output=True, text=True,
+            timeout=int(os.environ.get("ROBORSI_MANAGER_TIMEOUT_S", "3600")),
+        )
+    except subprocess.TimeoutExpired:
+        print("[manager] cycle timed out; continuing with the current library",
+              flush=True)
+        _note_manager_failure()
+        return False
+    if proc.returncode != 0:
+        _note_manager_failure()
+        print(f"[manager] cycle failed (exit {proc.returncode}): "
+              f"{(proc.stdout + proc.stderr)[-1500:]}", flush=True)
+        return False
+    return True
+
+
+def _note_manager_failure() -> None:
+    global _manager_failures
+    _manager_failures += 1
 
 
 def suite_exit_code(summary: dict[str, Any]) -> int:
@@ -238,7 +382,7 @@ def _run_suite_attempt(payload: dict[str, Any]) -> list[dict[str, Any]]:
             row = run_atomic_attempt(
                 task=payload["atomic"],
                 seed=int(payload["seed"]),
-                mode="eval",
+                mode=str(payload.get("run_mode") or "frozen"),
                 tool_budget=int(payload["tool_budget"]),
                 backend=payload["backend"],
                 sim_task=payload["task_key"],
@@ -246,6 +390,7 @@ def _run_suite_attempt(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 engineer_model=payload.get("engineer_model"),
                 reviewer_model=payload.get("reviewer_model"),
                 reasoning_effort=payload.get("reasoning_effort"),
+                agent_mode=str(payload.get("agent_mode") or "roborsi"),
             )
             row["task_key"] = payload["task_key"]
             row["attempt"] = attempt
@@ -266,12 +411,30 @@ def _run_suite_attempt(payload: dict[str, Any]) -> list[dict[str, Any]]:
 def _run_payload_batch(
     payloads: list[dict[str, Any]],
     workers: int,
+    fresh_process: bool = False,
+    on_result=None,
 ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
-    """Bound worker lifetime and queue damage from a native simulator crash."""
+    """Bound worker lifetime and queue damage from a native simulator crash.
+
+    ``on_result(payload, rows)`` is called as soon as each episode finishes,
+    so its journal row is written without waiting for the rest of the batch."""
     if not payloads:
         return []
-    if workers == 1:
-        results = []
+    results: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+
+    class _Results(list):
+        def append(self, item):
+            super().append(item)
+            if on_result is not None:
+                try:
+                    on_result(*item)
+                except Exception as exc:  # noqa: BLE001
+                    # A bookkeeping error must not cancel other episodes.
+                    print(f"[suite] result handler failed for "
+                          f"{item[0].get('task_key')}: {exc}", flush=True)
+
+    results = _Results()
+    if workers == 1 and not fresh_process:
         for payload in payloads:
             try:
                 rows = _run_suite_attempt(payload)
@@ -280,43 +443,70 @@ def _run_payload_batch(
             results.append((payload, rows))
         return results
 
-    executor = cf.ProcessPoolExecutor(
-        max_workers=min(workers, len(payloads)),
-        mp_context=mp.get_context("spawn"),
-        max_tasks_per_child=_TASKS_PER_PROCESS,
-    )
-    futures: dict[cf.Future, dict[str, Any]] = {}
-    results: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
-    try:
-        for payload in payloads:
-            try:
-                future = executor.submit(_run_suite_attempt, payload)
-            except Exception as exc:
-                results.append((payload, [_parent_worker_error(payload, exc)]))
-            else:
-                futures[future] = payload
-        for future in cf.as_completed(futures):
-            payload = futures[future]
-            try:
-                rows = future.result()
-            except Exception as exc:
-                rows = [_parent_worker_error(payload, exc)]
-            results.append((payload, rows))
-    finally:
-        executor.shutdown(wait=True, cancel_futures=True)
-    return results
+    # One child segfault (mujoco/EGL) breaks the whole pool and would fail
+    # every in-flight payload of the batch; rebuild the pool and re-run the
+    # affected payloads (bounded) so one crash costs one episode, not a batch.
+    pending = list(payloads)
+    rebuilds = 0
+    while pending:
+        executor = cf.ProcessPoolExecutor(
+            max_workers=min(workers, len(pending)),
+            mp_context=mp.get_context("spawn"),
+            max_tasks_per_child=1 if fresh_process else _TASKS_PER_PROCESS,
+        )
+        futures: dict[cf.Future, dict[str, Any]] = {}
+        requeue: list[dict[str, Any]] = []
+        try:
+            for payload in pending:
+                try:
+                    future = executor.submit(_run_suite_attempt, payload)
+                except Exception as exc:
+                    results.append(
+                        (payload, [_parent_worker_error(payload, exc)])
+                    )
+                else:
+                    futures[future] = payload
+            for future in cf.as_completed(futures):
+                payload = futures[future]
+                try:
+                    rows = future.result()
+                except BrokenProcessPool as exc:
+                    if rebuilds < _MAX_POOL_REBUILDS:
+                        requeue.append(payload)
+                    else:
+                        results.append(
+                            (payload, [_parent_worker_error(payload, exc)])
+                        )
+                except Exception as exc:
+                    results.append(
+                        (payload, [_parent_worker_error(payload, exc)])
+                    )
+                else:
+                    results.append((payload, rows))
+        finally:
+            executor.shutdown(wait=True, cancel_futures=True)
+        if requeue:
+            rebuilds += 1
+            print(
+                f"[suite] process pool broke; rebuild #{rebuilds}, "
+                f"retrying {len(requeue)} payloads",
+                flush=True,
+            )
+        pending = requeue
+    return list(results)
 
 
 def _parent_worker_error(payload: dict[str, Any], exc: Exception) -> dict[str, Any]:
     verdict = classify_attempt_exception(exc)
     return {
-        "task": "libero_pick_place",
+        "task": payload.get("atomic") or "libero_pick_place",
         "task_key": payload["task_key"],
         "sim_task": payload["task_key"],
         "backend": payload.get("backend"),
         "seed": int(payload["seed"]),
         "attempt": int(payload.get("attempt_start", 1)),
-        "run_mode": "eval",
+        "run_mode": str(payload.get("run_mode") or "frozen"),
+        "agent_mode": str(payload.get("agent_mode") or "roborsi"),
         "success": None,
         "verdict": verdict,
         "status": "incomplete",
@@ -356,11 +546,13 @@ def _load_or_create_campaign(
     workers: int,
     tool_budget: int,
     infra_retries: int,
+    run_mode: str,
     planner_model: str | None,
     engineer_model: str | None,
     reviewer_model: str | None,
     reasoning_effort: str | None,
     atomic_compound_enabled: bool,
+    agent_mode: str,
     journal: Path,
     created_at: datetime,
     runtime: dict[str, Any],
@@ -382,6 +574,8 @@ def _load_or_create_campaign(
         },
         "reasoning_effort": reasoning_effort,
         "atomic_compound_enabled": atomic_compound_enabled,
+        "agent_mode": agent_mode,
+        "run_mode": run_mode,
         "runtime": runtime,
     }
     if path.exists():
@@ -389,11 +583,27 @@ def _load_or_create_campaign(
             existing = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise ValueError(f"campaign manifest is not valid JSON: {path}") from exc
+        # Manifests written before agent_mode existed are roborsi campaigns.
+        existing.setdefault("agent_mode", "roborsi")
+        existing.setdefault("run_mode", "frozen")
+        # A frozen evaluation must run one exact code revision and asset set;
+        # resuming it on a different runtime is refused. Evolving campaigns
+        # change their own source by design, so drift there is recorded.
         mismatches = [
             key
             for key, value in requested.items()
-            if existing.get(key) != value
+            if key != "runtime" and existing.get(key) != value
         ]
+        if existing.get("runtime") != requested.get("runtime"):
+            if existing.get("run_mode", "frozen") in ("frozen", "eval"):
+                mismatches.append("runtime")
+            else:
+                print(
+                    "[suite] runtime fingerprint drift on evolve resume "
+                    f"(manifest {str((existing.get('runtime') or {}).get('roborsi_commit'))[:9]} "
+                    f"-> current {str(requested['runtime'].get('roborsi_commit'))[:9]})",
+                    flush=True,
+                )
         if mismatches:
             raise ValueError(
                 "resume configuration differs from campaign manifest: "
@@ -456,6 +666,7 @@ def _summarize_suite(
     started_at: datetime,
     journal: Path,
     campaign: dict[str, Any],
+    run_all_seeds: bool = False,
 ) -> dict[str, Any]:
     terminal: dict[tuple[str, int], dict[str, Any]] = {}
     for row in rows:
@@ -478,7 +689,7 @@ def _summarize_suite(
         )
         solved = success_seed is not None
         solved_tasks += int(solved)
-        complete = solved or len(task_rows) == seeds
+        complete = len(task_rows) == seeds or (solved and not run_all_seeds)
         if not complete:
             incomplete_tasks += 1
         per_task.append({
@@ -507,8 +718,8 @@ def _summarize_suite(
         "schema": "roborsi.libero_short_eval.v1",
         "campaign_id": campaign_id,
         "status": "complete" if incomplete_tasks == 0 else "incomplete",
-        "run_mode": "eval",
-        "frozen": True,
+        "run_mode": str(campaign.get("run_mode") or "frozen"),
+        "frozen": str(campaign.get("run_mode") or "frozen") in ("frozen", "eval"),
         "backend": backend,
         "atomic": atomic,
         "pass_at": seeds,
@@ -519,6 +730,7 @@ def _summarize_suite(
         "atomic_compound_enabled": bool(
             campaign.get("atomic_compound_enabled", True)
         ),
+        "agent_mode": str(campaign.get("agent_mode") or "roborsi"),
         "tasks_total": len(task_keys),
         "tasks_solved": solved_tasks,
         "task_success_rate": solved_tasks / len(task_keys),
@@ -529,6 +741,16 @@ def _summarize_suite(
         "episode_failures": sum(
             1 for row in valid_rows if row["verdict"] == "failure"
         ),
+        "episode_success_rate": (
+            sum(1 for row in valid_rows if row["verdict"] == "success")
+            / len(valid_rows) if valid_rows else 0.0
+        ),
+        "run_all_seeds": run_all_seeds,
+        "mean_rounds": (
+            sum(int(row.get("eval_rounds") or 1) for row in valid_rows)
+            / len(valid_rows) if valid_rows else 0.0
+        ),
+        "manager_cycle_failures": _manager_failures,
         "infra_count": infra,
         "implementation_error_count": implementation_errors,
         "unresolved_implementation_error_count": (

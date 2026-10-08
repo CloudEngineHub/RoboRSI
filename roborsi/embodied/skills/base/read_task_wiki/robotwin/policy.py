@@ -6,7 +6,7 @@ from typing import Any
 
 def dispatch_runtime(state, args: dict[str, Any]):
     from roborsi.embodied.agent_loop.rollout import _snapshot
-    from roborsi.agents.task_wiki import read_wiki, wiki_path
+    from roborsi.agents.memory.task_wiki import read_wiki, wiki_path
 
     task = args.get("task")
     if not task:

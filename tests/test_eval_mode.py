@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from roborsi.agents.workspace import Workspace
+from roborsi.agents.memory.workspace import Workspace
 from roborsi.cli.commands import app
 from roborsi.runtime_mode import (
     EvolutionDisabledError,
@@ -27,6 +27,9 @@ def _fake_backend(instruction: str = "perform the visible task"):
 
         def reset(self, _seed):
             return SimpleNamespace(extras={"instruction": instruction})
+
+        def check_success(self):
+            return True
 
         def close(self):
             return None
@@ -198,7 +201,7 @@ def test_eval_reads_released_recipes_without_writing_training_data(
 def test_eval_does_not_write_task_memory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from roborsi.agents import task_wiki
+    from roborsi.agents.memory import task_wiki
 
     skill_dir = tmp_path / "skill"
     skill_dir.mkdir()
@@ -229,7 +232,8 @@ def test_eval_does_not_write_task_memory(
 def test_reviewer_history_uses_ground_truth_firewall(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from roborsi.agents import reviewer, task_wiki
+    from roborsi.agents.roles import reviewer
+    from roborsi.agents.memory import task_wiki
 
     skill_dir = tmp_path / "skill"
     skill_dir.mkdir()
@@ -250,16 +254,17 @@ def test_reviewer_history_uses_ground_truth_firewall(
 def test_eval_reviewer_suppresses_proposal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from roborsi.agents import persistent_agent
-    from roborsi.agents import reviewer as reviewer_module
+    from roborsi.agents.sessions import persistent_agent
+    from roborsi.agents.roles import reviewer as reviewer_module
 
     workspace = Workspace(task="demo", run_id="r0", root=tmp_path)
     workspace.write_plan("# plan\n")
     workspace.write_summary("# summary\n")
+    monkeypatch.setenv("ROBORSI_ROLE_SESSION", "0")
     monkeypatch.setattr(reviewer_module, "_task_history_block", lambda _task: "(none)")
     monkeypatch.setattr(
-        persistent_agent,
-        "run_role",
+        reviewer_module,
+        "run_review_agent",
         lambda *args, **kwargs: json.dumps({
             "verdict": "continue",
             "root_cause": "missing primitive",
@@ -292,8 +297,8 @@ def test_reviewer_does_not_receive_final_simulator_verdict(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from roborsi.agents import persistent_agent
-    from roborsi.agents import reviewer as reviewer_module
+    from roborsi.agents.sessions import persistent_agent
+    from roborsi.agents.roles import reviewer as reviewer_module
 
     workspace = Workspace(task="demo", run_id="r0", root=tmp_path)
     workspace.write_plan("# plan\n")
@@ -302,7 +307,7 @@ def test_reviewer_does_not_receive_final_simulator_verdict(
     )
     seen: dict[str, str] = {}
 
-    def fake_role(_role, _task, user_block, **_kwargs):
+    def fake_role(_model, _system, user_block, _root):
         seen["prompt"] = user_block
         return json.dumps({
             "verdict": "done",
@@ -312,7 +317,8 @@ def test_reviewer_does_not_receive_final_simulator_verdict(
             "review_md": "visible evidence only",
         })
 
-    monkeypatch.setattr(persistent_agent, "run_role", fake_role)
+    monkeypatch.setenv("ROBORSI_ROLE_SESSION", "0")
+    monkeypatch.setattr(reviewer_module, "run_review_agent", fake_role)
     monkeypatch.setattr(reviewer_module, "_task_history_block", lambda _task: "(none)")
     monkeypatch.setattr(reviewer_module, "_gate_log_for_run", lambda _run: [])
 
@@ -337,32 +343,23 @@ def test_reviewer_does_not_receive_final_simulator_verdict(
     assert "success=True" not in seen["prompt"]
 
 
-def test_eval_uses_stateless_role_call(
+def test_frozen_mode_keeps_persistent_role_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from roborsi.agents import persistent_agent
-    from roborsi.embodied.agent_loop import vlm_io
+    from roborsi.agents.sessions import persistent_agent
 
-    monkeypatch.setattr(
-        persistent_agent,
-        "run",
-        lambda *args, **kwargs: pytest.fail("persistent session used during eval"),
-    )
-    monkeypatch.setattr(
-        vlm_io,
-        "_call_vlm_tools",
-        lambda *args, **kwargs: SimpleNamespace(content="stateless"),
-    )
+    seen = {}
 
-    with use_run_mode("eval"):
+    def fake_run(role, task, prompt, **kwargs):
+        seen["system"] = kwargs["system_prompt"]
+        return "session"
+
+    monkeypatch.setattr(persistent_agent, "run", fake_run)
+    with use_run_mode("frozen"):
         out = persistent_agent.run_role(
-            "planner",
-            "demo",
-            "task",
-            system_prompt="system",
-            model="anthropic/test",
-        )
-    assert out == "stateless"
+            "planner", "demo", "task", system_prompt="system", model="test")
+    assert out == "session"
+    assert "FROZEN MODE" in seen["system"]
 
 
 def test_trace_db_records_and_filters_run_mode(
@@ -383,8 +380,8 @@ def test_trace_db_records_and_filters_run_mode(
     with use_run_mode("evolve"):
         trace_db.insert_run("evolve-run", task="demo")
 
-    assert trace_db.get_run("eval-run")["run_mode"] == "eval"
-    assert [row["id"] for row in trace_db.list_runs(run_mode="eval")] == ["eval-run"]
+    assert trace_db.get_run("eval-run")["run_mode"] == "frozen"
+    assert [row["id"] for row in trace_db.list_runs(run_mode="frozen")] == ["eval-run"]
     assert [row["id"] for row in trace_db.list_runs(run_mode="evolve")] == ["evolve-run"]
     conn = trace_db._conn()
     try:
@@ -394,7 +391,7 @@ def test_trace_db_records_and_filters_run_mode(
         ).fetchone()["run_mode"]
     finally:
         conn.close()
-    assert bench_mode == "eval"
+    assert bench_mode == "frozen"
 
 
 def test_eval_blocks_training_and_proposal_registry_writes(
@@ -442,7 +439,7 @@ def test_eval_mode_propagates_into_tool_worker_thread(
             {"tool": "look", "args": {}},
             timeout_s=1.0,
         )
-    assert result["mode"] == "eval"
+    assert result["mode"] == "frozen"
 
 
 def test_libero_tool_dispatch_stays_on_environment_owner_thread(
@@ -476,7 +473,7 @@ def test_libero_tool_dispatch_stays_on_environment_owner_thread(
             timeout_s=1.0,
         )
 
-    assert result == {"thread": owner_thread, "mode": "eval"}
+    assert result == {"thread": owner_thread, "mode": "frozen"}
 
 
 def test_usage_metrics_count_each_provider_attempt(
@@ -527,7 +524,7 @@ def test_usage_metrics_count_each_provider_attempt(
 
 
 def test_tool_timing_is_grouped_for_efficiency_reports() -> None:
-    from roborsi.agents.engineer import _summarize_tool_timing
+    from roborsi.agents.roles.engineer import _summarize_tool_timing
 
     timing = _summarize_tool_timing([
         {"timing_phase": "perception", "wallclock_s": 1.25},
@@ -601,7 +598,7 @@ def test_atomic_eval_runner_skips_writeback(
             return None
 
     with use_run_mode("eval"):
-        result = core_agent._run_atomic_3role(
+        result = core_agent.run_atomic_episode(
             text="evaluate demo",
             atomic="demo",
             seed=0,
@@ -613,7 +610,7 @@ def test_atomic_eval_runner_skips_writeback(
         )
 
     assert isinstance(result, dict)
-    assert result["run_mode"] == "eval"
+    assert result["run_mode"] == "frozen"
     assert result["proposal_decision"] == "NO_PROPOSAL"
 
 
@@ -668,7 +665,7 @@ def test_atomic_eval_preserves_sim_verdict_when_reviewer_is_unavailable(
             return None
 
     with use_run_mode("eval"):
-        result = core_agent._run_atomic_3role(
+        result = core_agent.run_atomic_episode(
             text="evaluate demo",
             atomic="demo",
             seed=0,
@@ -714,7 +711,7 @@ def test_eval_cli_runs_all_requested_seeds(
             "video_path": None,
         }
 
-    monkeypatch.setattr(core_agent, "_run_atomic_3role", fake_run)
+    monkeypatch.setattr(core_agent, "run_atomic_episode", fake_run)
     result = CliRunner().invoke(
         app,
         ["eval", "demo", "--seeds", "2", "--seed-start", "4", "--json"],
@@ -722,7 +719,7 @@ def test_eval_cli_runs_all_requested_seeds(
 
     assert result.exit_code == 0, result.output
     summary = json.loads(result.stdout.strip().splitlines()[-1])
-    assert summary["run_mode"] == "eval"
+    assert summary["run_mode"] == "frozen"
     assert summary["frozen"] is True
     assert summary["seeds_passed"] == 1
     assert seen == [(4, RunMode.EVAL), (5, RunMode.EVAL)]
@@ -733,7 +730,6 @@ def test_web_cli_is_exposed() -> None:
     result = CliRunner().invoke(app, ["web", "--help"])
     assert result.exit_code == 0, result.output
     assert "--evo-port" in result.output
-    assert "--cockpit-port" in result.output
 
 
 def test_eval_cli_excludes_infra_from_success_denominator(
@@ -764,7 +760,7 @@ def test_eval_cli_excludes_infra_from_success_denominator(
             "video_path": None,
         }
 
-    monkeypatch.setattr(core_agent, "_run_atomic_3role", fake_run)
+    monkeypatch.setattr(core_agent, "run_atomic_episode", fake_run)
     result = CliRunner().invoke(
         app,
         ["eval", "demo", "--seeds", "2", "--json"],

@@ -76,7 +76,7 @@ commit,全部历史可审计。
 ### 一键复现
 
 ```bash
-git clone https://github.com/nssmd/RoboRSI.git && cd RoboRSI
+git clone --recursive https://github.com/nssmd/RoboRSI.git && cd RoboRSI
 export OPENAI_API_KEY="..."   # 任意 OpenAI 兼容 Responses 端点
 scripts/reproduce_libero_pro.sh
 ```
@@ -85,7 +85,7 @@ scripts/reproduce_libero_pro.sh
 HuggingFace 官方数据集
 [`zhouxueyang/LIBERO-Pro`](https://huggingface.co/datasets/zhouxueyang/LIBERO-Pro)
 下载扰动资产 → 配置并体检后端 → 启动 PyRoKi IK/轨迹优化服务 → 启动冻结
-code-on Pass-1 评测 → 独立复核 journal。脚本幂等、可断点续跑。新评测针对
+Pass-1 冻结评测 → 独立复核 journal。脚本幂等、可断点续跑。新评测针对
 当前冻结 release,不回放上表中的累计结果(边界见
 [docs/EVALUATION.md](./docs/EVALUATION.md))。
 
@@ -93,6 +93,10 @@ code-on Pass-1 评测 → 独立复核 journal。脚本幂等、可断点续跑�
 
 见 [docs/INSTALLATION.md](./docs/INSTALLATION.md) 与
 [docs/DOCKERINSTALLATION.md](./docs/DOCKERINSTALLATION.md)。
+
+LIBERO-Plus（840 个扰动实例，冻结评测）：`scripts/reproduce_libero_plus.sh`（见 [docs/EVALUATION.md](./docs/EVALUATION.md)）。
+
+接入自己的真机：见 [roborsi/embodied/embodiment/README.md](./roborsi/embodied/embodiment/README.md)。
 
 ```bash
 pip install -e ".[libero]"
@@ -103,7 +107,7 @@ roborsi libero configure \
   --bddldir ./LIBERO-PRO-assets/bddl_files \
   --initdir ./LIBERO-PRO-assets/init_files
 roborsi libero doctor --backend libero --task libero_object/0 --reset
-roborsi web   # 演化看板 :8787 · Manager 控制台 :8795
+roborsi web   # 演化看板 :8787
 ```
 
 ## 社区

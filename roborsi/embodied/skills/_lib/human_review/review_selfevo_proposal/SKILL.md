@@ -20,7 +20,7 @@ When a sim-agent (`bot_agent.py`) self-diagnoses a failed long-horizon run, it c
 
 - `~/.roborsi/skill_review/` exists and is readable.
 - Read access to the roborsi repo + git history (`git log`, `git show`).
-- `scripts/apply_selfevo_proposal.py` works (moves applied/rejected JSON into archive subdirs).
+- `roborsi/agents/evolution/apply_proposal.py` works (moves applied/rejected JSON into archive subdirs).
 
 # Phases
 
@@ -54,15 +54,15 @@ code_head  = code[:200]
 | 4a | `kind == "update"` AND target file is `base/robotwin/*/policy.py` (a BASE SKILL update) | **HARNESS GATE** — run `review_base_skill_harness` on the candidate. APPROVE proceeds; REJECT or SKIP halts apply. |
 | 5 | Rationale lacks ALL of: ("SYSTEMATIC" / "verdict"), ("view_frame" or "frame"), ("inner_trace" or "vlm_trace" or "tool_calls") | **REJECT** — proposal isn't grounded in the diagnostic chain (see `bot_agent` system prompt CONTRADICTION SIGNAL protocol) |
 | 6 | `git log --grep="<skill_name>"` shows a recent commit that already changed this skill in the same direction | **REJECT** as duplicate |
-| 7 | otherwise | **APPLY** via `python3 scripts/apply_selfevo_proposal.py <pid>` |
+| 7 | otherwise | **APPLY** via `python -m roborsi.agents.evolution.apply_proposal <pid>` |
 
 ## 4. Execute the decision
 
 ```bash
 # APPLY
-python3 scripts/apply_selfevo_proposal.py <pid>
+python -m roborsi.agents.evolution.apply_proposal <pid>
 # REJECT
-python3 scripts/apply_selfevo_proposal.py --reject <pid>
+python -m roborsi.agents.evolution.apply_proposal --reject <pid>
 # ESCALATE: do NOT touch the queue; report verbatim to the human:
 #   "PROPOSAL <pid>  kind=<kind>  name=<name>
 #    rationale: <first 300 chars>
@@ -94,5 +94,5 @@ Log to `/tmp/agent_loop/<task>/review_decisions.log`:
 # Related
 
 - Proposal submission tools: `propose_skill_update`, `propose_new_skill` in `bot_agent.py`.
-- Apply script: `scripts/apply_selfevo_proposal.py` (now moves files into archive subdirs).
+- Apply script: `roborsi/agents/evolution/apply_proposal.py` (now moves files into archive subdirs).
 - Diagnostic tools the agent's rationale should cite: `get_failure_patterns`, `get_inner_trace`, `view_frame`, `get_sim_debug`, `read_file`.

@@ -33,7 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 CAMPAIGN_DIR = Path(os.environ.get("ROBORSI_CAMPAIGN_DIR", "/tmp/pb"))
 
-# Self-evolution on-disk state (same sources as scripts/evo_dashboard.py):
+# Self-evolution on-disk state (same sources as the evolution dashboard):
 #   atomic skills tree — each task's zeroshot/wiki.md accretes Manager-approved
 #   leads + success/fail traces; the review queues hold the pending→approved/
 #   rejected funnel of failure hypotheses / plan promotions / skill diffs.
@@ -417,7 +417,7 @@ def campaign_status() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Public API — skill self-evolution (wiki leads + review funnel + trend)
 #
-# Same on-disk sources as scripts/evo_dashboard.py. The review-queue JSONs carry
+# Same on-disk sources as the evolution dashboard. The review-queue JSONs carry
 # their authoritative ``status`` field *inside* each file (files also get moved
 # between root / applied / rejected / … subdirs), so we walk the whole tree and
 # bucket by that field rather than trusting the directory a file happens to sit
@@ -566,7 +566,7 @@ def _scan_queues() -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]
 def evolution_overview() -> dict[str, Any]:
     """Global self-evolution snapshot: per-task knowledge accretion + the review
     funnel totals + a ranking. Reuses the same on-disk sources as
-    scripts/evo_dashboard.py (leads / trace counts / review queues); the
+    the evolution dashboard (leads / trace counts / review queues); the
     ``verified_success`` ranking additionally cross-references trace.db."""
     success = _task_success_map()
     funnel, totals = _scan_queues()
@@ -662,7 +662,7 @@ def task_evolution(task: str) -> dict[str, Any]:
 # Public API — Manager overview (the orchestration hierarchy, top-down)
 #
 # The real managers (backend-agnostic top-level sessions) are discovered via
-# roborsi.agents.manager.sessions — the same source the CLI picker uses.
+# roborsi.agents.roles.manager.sessions — the same source the CLI picker uses.
 # Everything below is what a manager drives: the campaign daemons (two lanes),
 # the per-task planner/reviewer role sessions, and the skill self-evolution
 # funnel. This reader stitches those into one top-down snapshot so the cockpit
@@ -732,9 +732,9 @@ def _build_task_group(task: str, rows: list[dict[str, Any]], success: dict[str, 
 
 def _managers() -> list[dict[str, Any]]:
     """The real manager sessions (backend-agnostic), each with its own transcript.
-    Single source of truth is roborsi.agents.manager.sessions — the same list
+    Single source of truth is roborsi.agents.roles.manager.sessions — the same list
     the CLI's ``roborsi manager --resume`` picker uses."""
-    from roborsi.agents.manager import sessions as msess
+    from roborsi.agents.roles.manager import sessions as msess
     out: list[dict[str, Any]] = []
     for m in msess.list_manager_sessions():
         out.append({

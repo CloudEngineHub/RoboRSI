@@ -12,7 +12,7 @@ feishu_integration.handle_command:
     so duplicates are suppressed.
 
   run_harness_for_skill(skill_name) → dict
-    Subprocess-runs scripts/test_base_skill.py <skill> --from-frontmatter.
+    Subprocess-runs roborsi/agents/evolution/skill_harness.py <skill> --from-frontmatter.
     Returns the parsed verdict dict (per harness_standard).
 
   approve_with_gate(pid, note) → (ok: bool, card: dict)
@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -75,12 +76,12 @@ def _is_base_skill_proposal(d: dict) -> tuple[bool, str]:
 
 
 def run_harness_for_skill(skill_name: str, timeout_s: int = 600) -> dict:
-    """Drive scripts/test_base_skill.py --from-frontmatter via the shared
+    """Drive roborsi/agents/evolution/skill_harness.py --from-frontmatter via the shared
     harness-gate helper. Returns the gate result as a dict for card
     rendering."""
     import sys as _sys
     _sys.path.insert(0, str(_REPO / "scripts"))
-    from scripts_lib_harness_gate import run_gate_for
+    from roborsi.agents.evolution.harness_gate import run_gate_for
     gr = run_gate_for(skill_name, timeout_s=timeout_s)
     return {"verdict": gr.verdict, "pass_count": gr.pass_count,
              "total": gr.total, "reason": gr.reason,
@@ -103,8 +104,8 @@ def approve_with_gate(pid: str, note: str = "") -> tuple[bool, dict]:
         # add the block before approve.
         if v != "PASS":
             return False, _harness_fail_card(pid, d, harness_info)
-    # Run apply_selfevo_proposal.py (handles git commit + moving to applied/).
-    cmd = ["python3", str(_REPO / "scripts/apply_selfevo_proposal.py"), pid]
+    # Run apply_proposal.py (handles git commit + moving to applied/).
+    cmd = [sys.executable, "-m", "roborsi.agents.evolution.apply_proposal", pid]
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
                             cwd=str(_REPO), encoding="utf-8", errors="replace")
     ok = res.returncode == 0
@@ -114,7 +115,7 @@ def approve_with_gate(pid: str, note: str = "") -> tuple[bool, dict]:
 
 
 def reject_with_archive(pid: str, note: str = "") -> tuple[bool, dict]:
-    cmd = ["python3", str(_REPO / "scripts/apply_selfevo_proposal.py"),
+    cmd = [sys.executable, "-m", "roborsi.agents.evolution.apply_proposal",
            "--reject", pid]
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=20,
                             cwd=str(_REPO), encoding="utf-8", errors="replace")

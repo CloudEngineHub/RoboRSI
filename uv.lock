@@ -1899,7 +1899,7 @@ wheels = [
 [[package]]
 name = "lerobot"
 version = "0.5.1"
-source = { editable = "roborsi/embodied/engine" }
+source = { editable = "third_party/lerobot" }
 dependencies = [
     { name = "accelerate" },
     { name = "av" },
@@ -4366,7 +4366,7 @@ requires-dist = [
     { name = "json-repair", specifier = ">=0.57.0,<1.0.0" },
     { name = "langsmith", marker = "extra == 'langsmith'", specifier = ">=0.1.0" },
     { name = "lark-oapi", specifier = ">=1.5.0,<2.0.0" },
-    { name = "lerobot", extras = ["feetech", "dynamixel", "pi"], editable = "roborsi/embodied/engine" },
+    { name = "lerobot", extras = ["feetech", "dynamixel", "pi"], editable = "third_party/lerobot" },
     { name = "litellm", specifier = ">=1.82.1,<2.0.0" },
     { name = "loguru", specifier = ">=0.7.3,<1.0.0" },
     { name = "matplotlib", marker = "extra == 'libero'", specifier = ">=3.5,<4.0" },

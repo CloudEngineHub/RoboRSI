@@ -133,7 +133,7 @@ def base_new(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Scaffold a new base skill — SKILL.md + policy.py stub. Tier 2 uses this when the existing toolset can't solve a phase."""
-    from roborsi.agent.lifecycle.scaffold import SKILLS_ROOT
+    SKILLS_ROOT = Path(__file__).resolve().parents[1] / "embodied" / "skills"
     base_dir = SKILLS_ROOT / "base" / robot / name
     if base_dir.exists() and not overwrite:
         _emit({"ok": False, "reason": f"{base_dir} exists; pass --overwrite"}, as_json)
@@ -276,61 +276,6 @@ def atomic_run(
         raise typer.Exit(1)
     qualified = f"{task}.{phase}"
     _run(qualified, params, as_json)
-
-
-@atomic_app.command("new")
-def atomic_new(
-    task: str = typer.Argument(..., help="New atomic task name (snake_case)."),
-    sim_task: str = typer.Option(..., "--sim-task", help="Underlying BiCoord/RoboTwin task name."),
-    backend: str = typer.Option("bicoord", "--backend"),
-    spec: str = typer.Option("", "--spec", help="Natural-language description of the task."),
-    judge_criterion: str = typer.Option("", "--judge", help="What counts as success (the judge prompt)."),
-    overwrite: bool = typer.Option(False, "--overwrite"),
-    as_json: bool = typer.Option(False, "--json"),
-) -> None:
-    """Scaffold a new atomic task — full 4-piece set + judge populated from a brief spec."""
-    from roborsi.agent.lifecycle.scaffold import scaffold_atomic
-    res = scaffold_atomic(task_name=task, sim_task=sim_task, backend=backend,
-                          spec=spec, judge_criterion=judge_criterion, overwrite=overwrite)
-    _emit(res, as_json)
-
-
-@atomic_app.command("status")
-def atomic_status(
-    task: str = typer.Argument(...),
-    episode_target: int = typer.Option(15, "--episode-target"),
-    as_json: bool = typer.Option(False, "--json"),
-) -> None:
-    """Show the lifecycle state of an atomic task."""
-    from roborsi.agent.lifecycle.atomic import status
-    _emit(status(task, episode_target=episode_target), as_json)
-
-
-@atomic_app.command("spin")
-def atomic_spin(
-    task: str = typer.Argument(...),
-    sim_task: str = typer.Option(..., "--sim-task"),
-    backend: str = typer.Option("bicoord", "--backend"),
-    seeds: str = typer.Option("1-25", "--seeds", help="Range like '1-25' or comma-list '1,3,5'."),
-    success_target: float = typer.Option(0.40, "--success-target"),
-    episode_target: int = typer.Option(15, "--episode-target"),
-    train_steps: int = typer.Option(2000, "--train-steps"),
-    long_horizon: str = typer.Option("", "--long-horizon", help="If set, drive collection via this LH task's execute."),
-    max_iterations: int = typer.Option(50, "--max-iter"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    as_json: bool = typer.Option(False, "--json"),
-) -> None:
-    """Drive an atomic task to ACTIVE state — the data flywheel."""
-    from roborsi.agent.lifecycle.driver import drive_atomic
-    seed_list = _parse_seeds(seeds)
-    res = drive_atomic(
-        task_name=task, sim_task=sim_task, backend=backend,
-        seeds=seed_list, success_target=success_target,
-        episode_target=episode_target, train_steps=train_steps,
-        long_horizon_wrapper=long_horizon or None,
-        max_iterations=max_iterations, dry_run=dry_run,
-    )
-    _emit(res, as_json)
 
 
 def _parse_seeds(s: str) -> list[int]:

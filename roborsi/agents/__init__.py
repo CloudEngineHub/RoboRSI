@@ -1,24 +1,24 @@
-"""3-role agent architecture for atomic tasks.
+"""RoboRSI agents.
 
-  Planner  → writes plan.md (goal / sub-goals / candidate skills)
-  Engineer → reads plan.md, runs the sim loop, writes summary.md
-  Reviewer → reads everything, writes review.md, optionally drops a
-             proposal into ~/.roborsi/skill_review/
-
-This package is currently active only on the atomic-task path
-(`handle_user_message` routes `.zeroshot` requests through it).
-The long-horizon path still uses the legacy single-agent loop.
+  roles/        Planner, Engineer, Reviewer and Manager, their contracts and
+                role-skill loading
+  sessions/     persistent CLI sessions (codex / claude) for long-lived roles
+  memory/       per-episode workspace, task wiki, plan archive, skill history
+  evolution/    proposals, validation gates and compound consolidation
+  safety/       the ground-truth firewall and generated-code checks
+  long_horizon/ long-horizon executor
+  baselines.py  Maestro / OpenETA / CaP-X comparison agents
 """
 
-from roborsi.agents.workspace import Workspace, new_workspace
-from roborsi.agents.planner import Planner
-from roborsi.agents.engineer import Engineer
-from roborsi.agents.reviewer import Reviewer
-from roborsi.agents.skill_selector import SkillSelector, SKILL_LIST_SOFT_CAP
-from roborsi.agents.validator import (
+from roborsi.agents.memory.workspace import Workspace, new_workspace
+from roborsi.agents.roles.planner import Planner
+from roborsi.agents.roles.engineer import Engineer
+from roborsi.agents.roles.reviewer import Reviewer
+from roborsi.agents.memory.skill_selector import SkillSelector, SKILL_LIST_SOFT_CAP
+from roborsi.agents.evolution.validator import (
     ProposalValidator, ValidationReport, CheckOutcome,
 )
-from roborsi.agents.lh_executor import (
+from roborsi.agents.long_horizon.lh_executor import (
     LHExecutor, LHExecutorResult, MAX_ATOMIC_RETRIES,
 )
 

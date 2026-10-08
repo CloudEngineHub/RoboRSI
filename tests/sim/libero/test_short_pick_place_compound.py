@@ -144,12 +144,3 @@ def test_released_compound_is_visible_in_frozen_eval_by_default(
             for row in _build_tool_specs(ns="libero", task="libero_pick_place")
         }
     assert "visual_pick_place" in names
-
-
-def test_released_compound_can_be_disabled_for_code_off(monkeypatch) -> None:
-    monkeypatch.setenv("ROBORSI_ATOMIC_COMPOUND", "0")
-    names = {
-        row["function"]["name"]
-        for row in _build_tool_specs(ns="libero", task="libero_pick_place")
-    }
-    assert "visual_pick_place" not in names

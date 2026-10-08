@@ -9,7 +9,7 @@ description: Long-horizon entry point for BiCoord collect_pens. Execution runs t
 # collect_pens_bicoord / execute
 
 Long-horizon execution runs through the 3-role triangle
-(`LHPlanner → LHExecutor → LHReviewer`), driven by `_run_lh_3role` in
+(`LHPlanner → LHExecutor → LHReviewer`), driven by `run_long_horizon_episode` in
 `roborsi.channels.agent.feishu.bot_agent`. This skill dir is the LH
 task's published identity: `discover()` registers `collect_pens_bicoord.execute`,
 the task wiki (`wiki.md`) lives here, and `_detect_lh_intent` enumerates

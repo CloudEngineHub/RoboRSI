@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from roborsi.agents.proposal_safety import inspect_candidate, inspect_skill_text
+from roborsi.agents.safety.proposal_safety import inspect_candidate, inspect_skill_text
 
 
 SAFE_POLICY = """\
@@ -127,7 +127,8 @@ def test_skill_text_cannot_publish_hidden_simulator_contract() -> None:
 def test_validator_stops_before_simulator_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from roborsi.agents import proposal_safety, validator
+    from roborsi.agents.safety import proposal_safety
+    from roborsi.agents.evolution import validator
 
     unsafe = SAFE_POLICY.replace('"look"', '"private_tool"', 1)
     monkeypatch.setattr(proposal_safety, "public_tool_names", lambda _ns: {"look"})
@@ -182,7 +183,7 @@ def dispatch_runtime(state, args):
     result = subprocess.run(
         [
             sys.executable,
-            "scripts/apply_selfevo_proposal.py",
+            "roborsi/agents/evolution/apply_proposal.py",
             proposal_id,
             "--skip-harness",
         ],

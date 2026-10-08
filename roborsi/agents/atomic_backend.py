@@ -1,6 +1,6 @@
 """Atomic-task → (backend, sim-task) resolution for the 3-role path.
 
-The 3-role atomic pipeline (``_run_atomic_3role``) historically assumed the
+The 3-role atomic pipeline (``run_atomic_episode``) historically assumed the
 RoboTwin backend: the atomic NAME doubled as the sim env name and the Engineer
 opened ``get_backend("robotwin")``. Non-RoboTwin atomics (LIBERO-PRO) break both
 assumptions — their sim task is a ``<suite>/<id>`` string (``libero_object/0``)

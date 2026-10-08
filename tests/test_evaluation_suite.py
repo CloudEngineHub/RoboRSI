@@ -238,6 +238,8 @@ def test_suite_bounds_worker_queue_and_continues_after_interruption(
     def fake_batch(
         payloads: list[dict],
         workers: int,
+        fresh_process: bool = False,
+        on_result=None,
     ) -> list[tuple[dict, list[dict]]]:
         assert len(payloads) <= workers * suite._TASKS_PER_PROCESS
         batches.append([payload["task_key"] for payload in payloads])
@@ -251,6 +253,8 @@ def test_suite_bounds_worker_queue_and_continues_after_interruption(
             row = _row(payload["task_key"], payload["seed"], verdict)
             row["attempt"] = payload["attempt_start"]
             results.append((payload, [row]))
+            if on_result is not None:
+                on_result(payload, [row])
         return results
 
     monkeypatch.setattr(suite, "_run_payload_batch", fake_batch)

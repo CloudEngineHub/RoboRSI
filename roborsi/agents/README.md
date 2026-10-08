@@ -25,7 +25,7 @@ user (Feishu / `roborsi chat`)
 | **Engineer** | `engineer.py` | Opus drives the sim tool loop → runs the task, writes `summary.md`. |
 | **Reviewer** | `reviewer.py` | Reads plan/summary/trace → verdict + skill proposal. |
 | **LH Planner / Executor** | `lh_planner.py` / `lh_executor.py` | Long-horizon decompose + sustained multi-agent execution. |
-| Self-evo support | `skill_synthesizer.py`, `env_synthesizer.py`, `validator.py` (gate), `task_wiki.py`, `skill_selector.py`, `skill_history.py`, `plan_archive.py`, `atomic_bottleneck.py` | Synthesize skills/envs, gate proposals, accumulate per-task knowledge. |
+| Self-evo support | `skill_synthesizer.py`, `validator.py` (gate), `task_wiki.py`, `skill_selector.py`, `skill_history.py`, `plan_archive.py`, `atomic_bottleneck.py` | Synthesize skills/envs, gate proposals, accumulate per-task knowledge. |
 | Runtime | `persistent_agent.py`, `_codex_autoloop/`, `workspace.py`, `html_review.py` | Persistent-session engine + task workspace + proposal review surface. |
 
 ## Conventions every agent follows

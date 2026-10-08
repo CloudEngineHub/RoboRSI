@@ -27,8 +27,6 @@ node_modules/
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 
-# Heavy test fixtures from upstream lerobot engine
-roborsi/embodied/engine/tests/artifacts/
 
 # Local user data (lives in ~/.roborsi/)
 

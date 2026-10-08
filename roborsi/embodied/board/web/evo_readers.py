@@ -333,17 +333,17 @@ def _convo_add(session: str, role: str, text: str, secs: float | None = None) ->
 
 def _list_sessions() -> list[str]:
     try:
-        from roborsi.agents.manager_chat import list_sessions
+        from roborsi.agents.roles.manager_chat import list_sessions
         return list_sessions()
     except Exception:
-        return ["direct"]
+        return ["manager"]
 
 
 def _run_command(cmd: str, pid: str) -> tuple[bool, str]:
     """Approve/reject a pending proposal via the existing apply script."""
     if cmd not in ("approve", "reject") or not pid:
         return False, "usage: /approve|/reject <proposal_id>"
-    argv = [sys.executable, str(REPO / "scripts" / "apply_selfevo_proposal.py")]
+    argv = [sys.executable, "-m", "roborsi.agents.evolution.apply_proposal"]
     if cmd == "reject":
         argv.append("--reject")
     argv.append(pid)

@@ -105,7 +105,7 @@ def run(
         raise RuntimeError(
             "'lerobot-train' not on PATH. Install LeRobot in the active "
             "python env (pip install lerobot[pi] or pip install -e "
-            "<RoboRSI>/roborsi/embodied/engine)."
+            "<RoboRSI>/third_party/lerobot)."
         )
 
     # ACT / DP have no published pretrained checkpoints — instantiate fresh

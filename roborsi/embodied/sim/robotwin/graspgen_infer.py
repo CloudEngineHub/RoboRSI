@@ -40,7 +40,7 @@ def _client(host: str, port: int):
     msgpack_numpy.patch()
     ctx = zmq.Context.instance()
     sock = ctx.socket(zmq.REQ)
-    sock.setsockopt(zmq.RCVTIMEO, 30000)
+    sock.setsockopt(zmq.RCVTIMEO, int(float(os.environ.get("GRASPGEN_TIMEOUT_S", "300")) * 1000))
     sock.setsockopt(zmq.SNDTIMEO, 10000)
     sock.connect(f"tcp://{host}:{port}")
     _CLIENT_CACHE[key] = (sock, msgpack)
@@ -156,11 +156,22 @@ def _grasps_from_cloud(cloud_world, num_point=20000, top_k=3, host=None, port=No
     cloud_normalized = cloud_world - cloud_centroid
 
     sock, msgpack = _client(host, port)
-    sock.send(msgpack.packb({
-        "action": "infer", "point_cloud": cloud_normalized,
-        "num_grasps": 400, "topk_num_grasps": top_k,
-    }, use_bin_type=True))
-    reply = msgpack.unpackb(sock.recv(), raw=False)
+    try:
+        sock.send(msgpack.packb({
+            "action": "infer", "point_cloud": cloud_normalized,
+            "num_grasps": 400, "topk_num_grasps": top_k,
+            # The server retries until min_grasps are collected (default 40,
+            # max 6 tries). Asking for top_k per try made every request run
+            # all six tries; one try already yields top_k ranked grasps.
+            "min_grasps": top_k, "max_tries": 2,
+        }, use_bin_type=True))
+        reply = msgpack.unpackb(sock.recv(), raw=False)
+    except Exception:
+        # A REQ socket that missed its reply cannot send again; drop it so
+        # the next call reconnects once the server is reachable.
+        _CLIENT_CACHE.pop(f"{host}:{port}", None)
+        sock.close(linger=0)
+        raise
     grasps = np.asarray(reply.get("grasps"))
     confidences = np.asarray(reply.get("confidences"))
     if grasps.size == 0:

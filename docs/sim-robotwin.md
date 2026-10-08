@@ -65,8 +65,8 @@ Output lands under:
 ## 4. Plan → run end-to-end
 
 ```bash
-roborsi plan "敲击桌面上的方块"
-roborsi run  "敲击桌面上的方块" --backend robotwin
+roborsi plan "beat the block on the table with the hammer"
+roborsi run  "beat the block on the table with the hammer" --backend robotwin
 ```
 
 The second command invokes the VLM Planner, picks `beat_block_hammer`,

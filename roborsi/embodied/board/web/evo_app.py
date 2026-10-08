@@ -3,7 +3,7 @@
 Serves the inline page (:mod:`board.web.page`) plus the exact routes its JS
 expects — ``/data.json``, ``/sessions``, ``/frame.jpg`` (GET) and ``/message``,
 ``/command`` (POST) — over the migrated readers (:mod:`board.web.evo_readers`).
-The route shapes are byte-identical to the old stdlib ``scripts/evo_dashboard.py``
+The route shapes are byte-identical to the old stdlib evolution dashboard script
 Handler, so the page markup is unchanged.
 
 No ``from __future__ import annotations`` — nested route handlers annotate params
@@ -94,7 +94,7 @@ def _manager_reply(text: str, session: str):
     Errors are surfaced to the client (keep the server up) — same contract as
     the old Handler."""
     from fastapi.responses import JSONResponse
-    from roborsi.agents import manager_chat
+    from roborsi.agents.roles import manager_chat
 
     E._convo_add(session, "you", text)
     t0 = time.time()

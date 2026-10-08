@@ -1,6 +1,6 @@
 """Evo dashboard page — inline HTML/CSS/JS served by board.web.evo_app.
 
-Moved verbatim from scripts/evo_dashboard.py; the JS fetches /data.json,
+Moved verbatim from the evolution dashboard; the JS fetches /data.json,
 /frame.jpg, /sessions and POSTs /message, /command (routes kept identical in
 evo_app so this markup is unchanged)."""
 

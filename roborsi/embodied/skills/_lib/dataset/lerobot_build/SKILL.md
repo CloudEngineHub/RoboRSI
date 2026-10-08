@@ -71,6 +71,6 @@ training consumes the LeRobot v0.5 dataset layout (`meta/info.json`,
 
 ## Implementation note
 
-Uses `lerobot` (already vendored in `roborsi/embodied/engine/`). The
+Uses `lerobot` (LeRobot v0.5.1, git submodule at `third_party/lerobot/`). The
 `LeRobotDataset.create(...)` helper handles most of the schema; we
 supply frame iterators from parquet.

@@ -22,6 +22,19 @@ import numpy as np
 
 _HEAD = "agentview"
 _POINT_SAM: dict[str, Any] = {}
+
+
+def _torch_device() -> str:
+    """Device for the perception models; ROBORSI_PERCEPTION_DEVICE overrides
+    the default (CUDA when available) so they can run on CPU when the GPU is
+    shared."""
+    override = os.environ.get("ROBORSI_PERCEPTION_DEVICE", "").strip()
+    if override:
+        return override
+    import torch
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 _QUERY_STOPWORDS = {
     "a",
     "an",
@@ -1323,7 +1336,7 @@ def _load_owlv2():
         return _OWLV2
     import torch
     from transformers import Owlv2ForObjectDetection, Owlv2Processor
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    dev = _torch_device()
     model_name = os.environ.get(
         "ROBORSI_OWLV2_MODEL",
         "google/owlv2-large-patch14-ensemble",
@@ -1374,7 +1387,12 @@ def locate_by_owlv2(env, rgb, target: str, scale: int = 3, thresh: float = 0.05)
     with torch.no_grad():
         out = o["mod"](**inp)
     tsz = torch.tensor([pil.size[::-1]]).to(o["dev"])
-    res = o["proc"].post_process_object_detection(out, threshold=thresh, target_sizes=tsz)[0]
+    # transformers >=5 removed Owlv2Processor.post_process_object_detection;
+    # the image processor keeps it on both major versions.
+    _post = getattr(o["proc"], "post_process_object_detection", None)
+    if _post is None:
+        _post = o["proc"].image_processor.post_process_object_detection
+    res = _post(out, threshold=thresh, target_sizes=tsz)[0]
     boxes = res["boxes"].cpu().numpy()
     scores = res["scores"].cpu().numpy()
     labels = res["labels"].cpu().numpy()
@@ -1706,7 +1724,7 @@ def _load_point_sam():
     model = SamModel.from_pretrained(
         model_name,
         local_files_only=local_only,
-    ).to("cuda" if torch.cuda.is_available() else "cpu").eval()
+    ).to(_torch_device()).eval()
     _POINT_SAM.update({"processor": processor, "model": model})
     return processor, model
 
@@ -1837,7 +1855,6 @@ def object_cloud(env, u: int, v: int, camera: str = _HEAD, z_band: float = 0.10)
 #     nudging the GraspGen point <1 cm and risking a pull toward the wrong object.
 # So on LIBERO the wrist adds no correct-object geometry at grasp time; fusing it
 # is a no-op at best and mildly harmful at worst. The grasp cloud stays HEAD-ONLY.
-# Probes: /tmp/mv_probe{,2,3,4}.py (frames in /tmp/mv_probe_out/).
 
 
 def grasps_at_pixel(env, u: int, v: int, top_k: int = 3):
@@ -1846,7 +1863,8 @@ def grasps_at_pixel(env, u: int, v: int, top_k: int = 3):
     if cloud is None:
         return [], None
     grasps = []
-    if os.environ.get("GRASPGEN_PORT"):
+    graspgen_port = os.environ.get("GRASPGEN_PORT", "5556")
+    if graspgen_port:
         try:
             from roborsi.embodied.sim.robotwin.graspgen_infer import (
                 _grasps_from_cloud,
@@ -1855,8 +1873,13 @@ def grasps_at_pixel(env, u: int, v: int, top_k: int = 3):
             grasps = _grasps_from_cloud(
                 cloud.astype(np.float32),
                 top_k=top_k,
+                port=int(graspgen_port),
             )
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            # Visible in the run log: a dead or overloaded GraspGen server
+            # silently degrades every grasp to the top-down fallback.
+            print(f"[graspgen] request failed on port {graspgen_port}: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
             grasps = []
     filtered = filter_grasps_consistent_with_cloud(grasps, cloud)
     if filtered:

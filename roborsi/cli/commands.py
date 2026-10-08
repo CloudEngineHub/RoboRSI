@@ -76,9 +76,9 @@ def manager(
     ``--continue`` resumes the most recent. Managers are backend-agnostic
     (claude/codex/copilot). Every launch is registered so the CLI picker and the
     web cockpit show the same manager list. It recommends; you approve."""
-    from roborsi.agents.manager import sessions as msess
+    from roborsi.agents.roles.manager import sessions as msess
     repo = Path(__file__).resolve().parents[2]
-    manager_md = (repo / "roborsi" / "agents" / "manager" / "MANAGER.md").read_text(encoding="utf-8")
+    manager_md = (repo / "roborsi" / "agents" / "roles" / "manager" / "MANAGER.md").read_text(encoding="utf-8")
     backend = backend or os.environ.get("ROBORSI_ROLE_BACKEND", "claude")
     # The Manager IS the operator's own session — strip any inherited sim-agent
     # Keep provider credentials in the operator's environment.
@@ -179,22 +179,11 @@ def tui(
 def web(
     host: str = typer.Option("127.0.0.1", "--host"),
     evo_port: int = typer.Option(8787, "--evo-port", min=1, max=65535),
-    cockpit_port: int = typer.Option(8795, "--cockpit-port", min=1, max=65535),
-    token: str | None = typer.Option(None, "--token", envvar="ROBORSI_WEB_TOKEN"),
-    evo_only: bool = typer.Option(False, "--evo-only"),
-    cockpit_only: bool = typer.Option(False, "--cockpit-only"),
 ) -> None:
-    """Serve the evolution dashboard and Manager session cockpit."""
-    if evo_only and cockpit_only:
-        raise typer.BadParameter("--evo-only and --cockpit-only are exclusive")
+    """Serve the evolution dashboard."""
     from roborsi.embodied.board.web.server import serve
 
-    serve(
-        host=host,
-        evo_port=None if cockpit_only else evo_port,
-        cockpit_port=None if evo_only else cockpit_port,
-        auth_token=token,
-    )
+    serve(host=host, evo_port=evo_port)
 
 
 @app.command("eval")
@@ -213,9 +202,20 @@ def eval_task(
     engineer_model: str | None = typer.Option(None, "--engineer-model"),
     reviewer_model: str | None = typer.Option(None, "--reviewer-model"),
     reasoning_effort: str | None = typer.Option(None, "--reasoning-effort"),
+    review: str = typer.Option(
+        "manager", "--review",
+        help="Who approves evolved skill code after the simulator gate: "
+             "manager (published automatically) or human (listed on an HTML "
+             "page under ROBORSI_HOME/proposal_html for a person to approve).",
+    ),
+    run_mode: str = typer.Option("frozen", "--run-mode", help="frozen (no skill/wiki updates) or evolve"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Evaluate a frozen RoboRSI release without self-evolution."""
+    """Run RoboRSI on an atomic task for several seeds (frozen by default)."""
+    if review not in {"manager", "human"}:
+        console.print("[red]--review must be 'manager' or 'human'[/red]")
+        raise typer.Exit(2)
+    os.environ["ROBORSI_REVIEW_MODE"] = review
     import json
     from roborsi.evaluation.atomic import campaign_exit_code, run_atomic_campaign
 
@@ -229,7 +229,7 @@ def eval_task(
         task=task,
         seeds=seeds,
         seed_start=seed_start,
-        mode="eval",
+        mode=run_mode,
         tool_budget=tool_budget,
         backend=backend,
         sim_task=sim_task,
@@ -242,7 +242,7 @@ def eval_task(
     if as_json:
         sys.stdout.write(json.dumps(summary, ensure_ascii=False, default=str) + "\n")
     else:
-        table = Table(title=f"Frozen eval · {task}")
+        table = Table(title=f"{run_mode} · {task}")
         table.add_column("seed", justify="right")
         table.add_column("result")
         table.add_column("outcome")
@@ -282,6 +282,18 @@ def eval_task(
         raise typer.Exit(exit_code)
 
 
+from enum import Enum
+
+
+class AgentMode(str, Enum):
+    """Agent orchestration for eval campaigns (roborsi = full triangle)."""
+
+    roborsi = "roborsi"
+    maestro = "maestro"
+    openeta = "openeta"
+    capx = "capx"
+
+
 @app.command("eval-suite")
 def eval_suite(
     backend: str = typer.Option("libero-pro", "--backend"),
@@ -291,16 +303,40 @@ def eval_suite(
     workers: int = typer.Option(4, "--workers", "-w", min=1),
     tool_budget: int = typer.Option(40, "--tool-budget", min=1),
     tasks: list[str] | None = typer.Option(None, "--task"),
+    task_file: str | None = typer.Option(
+        None, "--panel",
+        help="Evaluation panel: a name under roborsi/evaluation/panels "
+             "(e.g. libero_plus_840) or a JSON file with an 'instances' map.",
+    ),
     out_dir: Path | None = typer.Option(None, "--out"),
     infra_retries: int = typer.Option(2, "--infra-retries", min=0),
+    run_mode: str = typer.Option("frozen", "--run-mode", help="frozen (no skill/wiki updates) or evolve"),
     planner_model: str | None = typer.Option(None, "--planner-model"),
     engineer_model: str | None = typer.Option(None, "--engineer-model"),
     reviewer_model: str | None = typer.Option(None, "--reviewer-model"),
     reasoning_effort: str | None = typer.Option(None, "--reasoning-effort"),
-    code_on: bool = typer.Option(
-        True,
-        "--code-on/--code-off",
-        help="Expose released code-backed compound skills during frozen eval.",
+    agent_mode: AgentMode = typer.Option(
+        AgentMode.roborsi,
+        "--agent-mode",
+        help=(
+            "Agent orchestration: roborsi (full Planner→Engineer→Reviewer "
+            "triangle) or an ablation baseline — maestro (single "
+            "orchestrator VLM), openeta (forced observe→think→act loop), "
+            "capx (one-shot code-as-policy). All modes share the same tool "
+            "surface, budget, and final simulator verdict."
+        ),
+    ),
+    review: str = typer.Option(
+        "manager", "--review",
+        help="Who approves evolved skill code after the simulator gate: "
+             "manager (published automatically) or human (listed on an HTML "
+             "page under ROBORSI_HOME/proposal_html for a person to approve).",
+    ),
+    run_all_seeds: bool = typer.Option(
+        False,
+        "--run-all-seeds/--stop-on-success",
+        help="Run every (task, seed) episode (episode success rate) instead "
+             "of stopping a task at its first success (task pass@K).",
     ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -311,6 +347,17 @@ def eval_suite(
         run_libero_short_suite,
         suite_exit_code,
     )
+
+    if review not in {"manager", "human"}:
+        console.print("[red]--review must be 'manager' or 'human'[/red]")
+        raise typer.Exit(2)
+    os.environ["ROBORSI_REVIEW_MODE"] = review
+    if task_file:
+        from roborsi.evaluation.panels import load_panel
+        tasks = list(tasks or []) + list(load_panel(task_file)["instances"])
+    if run_mode not in {"frozen", "eval", "evolve"}:
+        console.print("[red]--run-mode must be 'frozen' or 'evolve'[/red]")
+        raise typer.Exit(2)
 
     def _progress(
         task_key: str,
@@ -339,12 +386,14 @@ def eval_suite(
             tasks=tasks,
             out_dir=out_dir,
             infra_retries=infra_retries,
+            run_mode=run_mode,
             planner_model=planner_model,
             engineer_model=engineer_model,
             reviewer_model=reviewer_model,
             reasoning_effort=reasoning_effort,
-            atomic_compound_enabled=code_on,
+            agent_mode=agent_mode.value,
             progress=_progress,
+            run_all_seeds=run_all_seeds,
         )
     except (RuntimeError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -488,7 +537,6 @@ def run_onboard_core(*, interactive: bool = True, skip_config: bool = False) -> 
         console.print("  1. Add your API key to [cyan]~/.roborsi/config.json[/cyan]")
         console.print("     Get one at: https://openrouter.ai/keys")
         console.print("  2. Chat: [cyan]roborsi agent -m \"Hello!\"[/cyan]")
-        console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/nssmd/robo-rsi#-chat-apps[/dim]")
 
 
 @app.command()
@@ -570,100 +618,6 @@ def channels_status():
         )
 
     console.print(table)
-
-
-def _get_bridge_dir() -> Path:
-    """Get the bridge directory, setting it up if needed."""
-    import shutil
-    import subprocess
-
-    # User's bridge location
-    from roborsi.config.paths import get_bridge_install_dir
-
-    user_bridge = get_bridge_install_dir()
-
-    # Check if already built
-    if (user_bridge / "dist" / "index.js").exists():
-        return user_bridge
-
-    # Check for npm
-    npm_path = shutil.which("npm")
-    if not npm_path:
-        console.print("[red]npm not found. Please install Node.js >= 18.[/red]")
-        raise typer.Exit(1)
-
-    # Find source bridge: first check package data, then source dir
-    pkg_bridge = Path(__file__).parent.parent / "bridge"  # roborsi/bridge (installed)
-    src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge (dev)
-
-    source = None
-    if (pkg_bridge / "package.json").exists():
-        source = pkg_bridge
-    elif (src_bridge / "package.json").exists():
-        source = src_bridge
-
-    if not source:
-        console.print("[red]Bridge source not found.[/red]")
-        console.print("Try reinstalling: pip install --force-reinstall roborsi")
-        raise typer.Exit(1)
-
-    console.print(f"{__logo__} Setting up bridge...")
-
-    # Copy to user directory
-    user_bridge.parent.mkdir(parents=True, exist_ok=True)
-    if user_bridge.exists():
-        shutil.rmtree(user_bridge)
-    shutil.copytree(source, user_bridge, ignore=shutil.ignore_patterns("node_modules", "dist"))
-
-    # Install and build
-    try:
-        console.print("  Installing dependencies...")
-        subprocess.run([npm_path, "install"], cwd=user_bridge, check=True, capture_output=True)
-
-        console.print("  Building...")
-        subprocess.run([npm_path, "run", "build"], cwd=user_bridge, check=True, capture_output=True)
-
-        console.print("[green]✓[/green] Bridge ready\n")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Build failed: {e}[/red]")
-        if e.stderr:
-            console.print(f"[dim]{e.stderr.decode()[:500]}[/dim]")
-        raise typer.Exit(1)
-
-    return user_bridge
-
-
-@channels_app.command("login")
-def channels_login():
-    """Link device via QR code."""
-    import shutil
-    import subprocess
-
-    from roborsi.config.loader import load_config
-    from roborsi.config.paths import get_runtime_subdir
-
-    config = load_config()
-    bridge_dir = _get_bridge_dir()
-
-    console.print(f"{__logo__} Starting bridge...")
-    console.print("Scan the QR code to connect.\n")
-
-    env = {**os.environ}
-    wa_cfg = getattr(config.channels, "whatsapp", None) or {}
-    bridge_token = wa_cfg.get("bridgeToken", "") if isinstance(wa_cfg, dict) else getattr(wa_cfg, "bridge_token", "")
-    if bridge_token:
-        env["BRIDGE_TOKEN"] = bridge_token
-    env["AUTH_DIR"] = str(get_runtime_subdir("whatsapp-auth"))
-
-    npm_path = shutil.which("npm")
-    if not npm_path:
-        console.print("[red]npm not found. Please install Node.js.[/red]")
-        raise typer.Exit(1)
-
-    try:
-        subprocess.run([npm_path, "start"], cwd=bridge_dir, check=True, env=env)
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Bridge failed: {e}[/red]")
 
 
 # ============================================================================

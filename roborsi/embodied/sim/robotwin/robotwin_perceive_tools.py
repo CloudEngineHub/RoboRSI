@@ -424,10 +424,7 @@ def _do_recall_past_success(state: _State, args: dict[str, Any]) -> tuple[dict[s
     k = int(args.get("k", 1))
     if not atomic:
         return ({"ok": False, "reason": "must pass atomic name (the skill we're trying to do)"}, _snapshot(state.env))
-    try:
-        from roborsi.agent.explore import successful_traces, render_trace_brief
-    except ImportError as exc:
-        return ({"ok": False, "reason": f"explore lib missing: {exc}"}, _snapshot(state.env))
+    from roborsi.embodied.sim.robotwin.explore import successful_traces, render_trace_brief
     succs = successful_traces(atomic, limit=k)
     if not succs:
         return ({"ok": True, "atomic": atomic, "count": 0,

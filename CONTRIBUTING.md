@@ -29,16 +29,14 @@ dependencies. Configure those paths with `ROBORSI_ROBOTWIN_ROOT` and
 ## Before opening a pull request
 
 ```bash
-python scripts/check_gt_leak.py
+python -m roborsi.agents.safety.wiki_gt_check
 python -m compileall -q roborsi scripts tests
 pytest -q
 ```
 
-Also build both user interfaces when changing them:
+Also check the terminal UI when changing it:
 
 ```bash
-npm --prefix frontend/web install
-npm --prefix frontend/web run build
 npm --prefix roborsi/frontend/tui install
 npm --prefix roborsi/frontend/tui run typecheck
 ```

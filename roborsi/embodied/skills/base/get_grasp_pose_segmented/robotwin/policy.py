@@ -108,7 +108,8 @@ def dispatch_runtime(state, args: dict[str, Any]):
     sock.setsockopt(zmq.SNDTIMEO, 10000)
     sock.connect(f"tcp://{host}:{port}")
     request = {"action": "infer", "point_cloud": cloud_world,
-               "num_grasps": 200, "topk_num_grasps": top_k}
+               "num_grasps": 200, "topk_num_grasps": top_k,
+               "min_grasps": top_k, "max_tries": 2}
     sock.send(msgpack.packb(request, use_bin_type=True))
     reply = msgpack.unpackb(sock.recv(), raw=False)
     grasps = np.asarray(reply.get("grasps"))

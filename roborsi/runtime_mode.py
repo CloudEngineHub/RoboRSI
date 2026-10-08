@@ -1,8 +1,9 @@
 """Process-local RoboRSI run mode.
 
-``evolve`` is the normal self-evolution runtime. ``eval`` freezes the released
-capability set: execution artifacts are still recorded, but no skill, task
-memory, proposal, persistent role session, or training dataset may be updated.
+``evolve`` is the normal self-evolution runtime. ``frozen`` disables
+evolution: no skill, task wiki, plan archive, proposal or training dataset is
+updated. Planner and Reviewer keep their persistent role sessions in both
+modes. ``eval`` is accepted as a legacy name for ``frozen``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,14 @@ from typing import Iterator
 
 class RunMode(str, Enum):
     EVOLVE = "evolve"
-    EVAL = "eval"
+    FROZEN = "frozen"
+    EVAL = "frozen"  # legacy alias
+
+    @classmethod
+    def _missing_(cls, value):
+        if str(value).strip().lower() == "eval":
+            return cls.FROZEN
+        return None
 
 
 class EvolutionDisabledError(RuntimeError):
@@ -57,13 +65,13 @@ def evolution_enabled() -> bool:
 def require_evolution(action: str) -> None:
     if not evolution_enabled():
         raise EvolutionDisabledError(
-            f"{action} is disabled in eval mode; the released capability set is frozen"
+            f"{action} is disabled in frozen mode; the released capability set is frozen"
         )
 
 
 def evaluation_prompt() -> str:
     return (
-        "EVALUATION MODE (binding): the released skills and persistent memory are "
+        "FROZEN MODE (binding): the released skills, task wiki and plans are "
         "frozen. Use only existing published capabilities. You may replan within "
         "this episode, but do not create, register, propose, promote, train, or "
         "persist any capability. If the frozen system cannot complete the task, "
