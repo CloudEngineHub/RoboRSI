@@ -153,6 +153,7 @@ def test_goal_ik_request_carries_live_arm_joints(monkeypatch) -> None:
 
     assert result.tolist() == [0.0] * 7
     assert captured["protocol"] == "roborsi.pyroki.live_joints.v1"
+    assert captured["op"] == "ik"
     assert captured["current_joints"] == current.tolist()
 
 
