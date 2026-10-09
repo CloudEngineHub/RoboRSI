@@ -209,6 +209,39 @@ def _apply_update(data: dict) -> tuple[list[str], str]:
     return changed, msg
 
 
+def _apply_task_local(data: dict, task_key: str) -> tuple[list[str], str]:
+    """Install the change for one task only: skills/task_local/<task>/base/
+    <name>/<ns>/. The shared skill stays unchanged for every other task."""
+    from roborsi.embodied.skills import task_local_key
+
+    name = _validated_segment(data.get("name"), "skill name")
+    tier, owner, _namespace = _proposal_layout(data)
+    if tier != "base":
+        raise ValueError("task scope applies to base skills only")
+    code = data.get("new_code") or data.get("code") or ""
+    if not code:
+        raise ValueError("proposal has empty new_code")
+    target = (REPO / "roborsi" / "embodied" / "skills" / "task_local"
+              / task_local_key(task_key) / "base" / name / owner)
+    target.mkdir(parents=True, exist_ok=True)
+    skill_md = data.get("skill_md") or ""
+    if not skill_md:
+        from roborsi.embodied.skills import get_ns
+        shared = get_ns(name, owner)
+        skill_md = shared.path.read_text(encoding="utf-8") if shared else ""
+    if not skill_md:
+        raise ValueError("a task-scoped skill needs a SKILL.md")
+    files = []
+    for fname, text in (("policy.py", code), ("SKILL.md", skill_md)):
+        path = target / fname
+        _backup(path)
+        path.write_text(text, encoding="utf-8")
+        files.append(str(path.relative_to(REPO)))
+    msg = (f"selfevo: {name} for task {task_key} only (proposal {data['id']})\n\n"
+           f"{(data.get('rationale') or '')[:300]}")
+    return files, msg
+
+
 def main() -> int:
     from roborsi.runtime_mode import EvolutionDisabledError, require_evolution
     try:
@@ -220,6 +253,11 @@ def main() -> int:
     ap.add_argument("proposal_id")
     ap.add_argument("--reject", action="store_true",
                       help="Mark proposal rejected instead of applying.")
+    ap.add_argument("--scope", choices=["global", "task"], default="global",
+                    help="global: change the shared skill for every task; "
+                         "task: install it for the proposal's task only")
+    ap.add_argument("--task", default=None,
+                    help="task key for --scope task (default: the proposal's task)")
     ap.add_argument("--skip-harness", action="store_true",
                       help="(Operator override) Skip harness gate for "
                            "base/robotwin skill changes. Use only when you "
@@ -248,7 +286,13 @@ def main() -> int:
     _BACKUPS.clear()
     try:
         _assert_candidate_safe(data)
-        if data.get("kind") == "new":
+        if args.scope == "task":
+            task_key = (args.task or data.get("source_task_key")
+                        or data.get("source_task") or data.get("task"))
+            if not task_key or "/" not in str(task_key):
+                raise ValueError("--scope task needs a concrete task key (e.g. libero_goal/3)")
+            files, msg = _apply_task_local(data, str(task_key))
+        elif data.get("kind") == "new":
             files, msg = _apply_new(data)
         elif data.get("kind") == "update":
             files, msg = _apply_update(data)

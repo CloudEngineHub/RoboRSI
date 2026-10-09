@@ -30,6 +30,11 @@ description: Use when proposals are queued - check them against the preserved ev
    skill harness when it exists, otherwise whole episodes on development
    seeds disjoint from evaluation seeds. Code you write yourself is queued
    for a later review, never self-approved.
-6. Approve a cross-task lesson only when the evidence supports it and it
+6. Choose the scope of an approved code change. `global` changes the shared
+   skill for every task; use it when the fix is general (a real bug, a
+   missing check, better geometry). `task` installs the revised skill only
+   for the source task (`skills/task_local/<task>/`); use it when the change
+   suits that scene or object but could hurt other tasks.
+7. Approve a cross-task lesson only when the evidence supports it and it
    transfers beyond the source task.
-7. Record every decision with its reason.
+8. Record every decision with its reason.

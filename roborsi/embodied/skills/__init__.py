@@ -88,6 +88,9 @@ def _discover_root(root: Path, is_user: bool) -> list[Skill]:
     if not root.exists():
         return skills
     for skill_md in root.rglob("SKILL.md"):
+        # Task-scoped skills are visible only to their own task (discover_ns).
+        if "task_local" in skill_md.relative_to(root).parts:
+            continue
         try:
             content = skill_md.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -146,6 +149,20 @@ def get(name: str) -> Skill | None:
     return None
 
 
+def task_local_key(task_key: str) -> str:
+    return task_key.replace("/", "__")
+
+
+def task_local_root(task_key: str | None = None) -> Path | None:
+    """Directory of skills revised for one task only, or None."""
+    import os
+    key = task_key or os.environ.get("ROBORSI_CURRENT_SIM_TASK")
+    if not key:
+        return None
+    root = SHIPPED_ROOT / "task_local" / task_local_key(key)
+    return root if root.exists() or task_key else None
+
+
 def discover_ns(ns: str) -> list[Skill]:
     """Base skills of ONE namespace (``base/<ns>/``), deduped WITHIN the
     namespace only (shipped over user), NOT against other namespaces.
@@ -157,6 +174,15 @@ def discover_ns(ns: str) -> list[Skill]:
     embodiments."""
     out: list[Skill] = []
     seen: set[str] = set()
+    # A skill revised for the running task only (task_local/<task>/base/...)
+    # shadows the shared skill of the same name for that task.
+    local = task_local_root()
+    if local is not None:
+        for sk in _discover_root(local, False):
+            parts = sk.path.parent.parts
+            if "base" in parts and ns in parts and sk.name not in seen:
+                seen.add(sk.name)
+                out.append(sk)
     for root, is_user in ((SHIPPED_ROOT, False), (user_root(), True)):
         for sk in _discover_root(root, is_user):
             parts = sk.path.parent.parts

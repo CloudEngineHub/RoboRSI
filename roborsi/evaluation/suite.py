@@ -123,6 +123,7 @@ def run_libero_short_suite(
     root.mkdir(parents=True, exist_ok=True)
     campaign_path = root / "campaign.json"
     if run_mode == "evolve":
+        _use_library_copy(root)
         # The Manager's compound consolidation reads this campaign's journal.
         os.environ.setdefault("ROBORSI_COMPOUND_SOURCE_CAMPAIGNS", str(root.parent))
     journal = root / "episodes.jsonl"
@@ -271,6 +272,41 @@ def run_libero_short_suite(
 
 _manager_failures = 0
 
+
+def _repo_root() -> Path:
+    return Path(os.environ.get("ROBORSI_LIBRARY_ROOT")
+                or Path(__file__).resolve().parents[2])
+
+
+def _use_library_copy(root: Path) -> None:
+    """Evolve on a copy of the code and skill library (a git worktree under
+    the campaign directory), so published skill changes never touch the
+    checkout the campaign was started from. Episodes and the Manager run from
+    the copy; resuming a campaign reuses it. ROBORSI_EVOLVE_IN_PLACE=1 evolves
+    the checkout itself."""
+    import shutil
+    import subprocess
+    import sys
+
+    if os.environ.get("ROBORSI_EVOLVE_IN_PLACE") == "1":
+        return
+    source = Path(__file__).resolve().parents[2]
+    library = root / "library"
+    if not (library / "roborsi").exists():
+        if (source / ".git").exists():
+            subprocess.run(["git", "worktree", "add", "--detach", str(library), "HEAD"],
+                           cwd=source, check=True, capture_output=True)
+        else:
+            shutil.copytree(source, library, ignore=shutil.ignore_patterns(
+                ".git", "__pycache__", "third_party"))
+    os.environ["ROBORSI_LIBRARY_ROOT"] = str(library)
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        [str(library), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    # Spawned episode processes inherit sys.path and import from the copy.
+    if str(library) not in sys.path:
+        sys.path.insert(0, str(library))
+    print(f"[suite] evolving a copy of the skill library at {library}", flush=True)
+
 _REVIEW_QUEUES = ("wiki_review", "plan_review", "skill_review", "policy_review")
 
 
@@ -335,7 +371,7 @@ def _run_manager_cycle() -> bool:
     import subprocess
     import sys
 
-    repo = Path(__file__).resolve().parents[2]
+    repo = _repo_root()
 
     try:
         proc = subprocess.run(

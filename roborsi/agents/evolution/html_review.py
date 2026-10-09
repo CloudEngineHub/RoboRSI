@@ -195,8 +195,11 @@ table.diff{{font-family:monospace;font-size:12px;border-collapse:collapse}} .dif
 <p><b>Reviewer rationale:</b></p><pre>{html.escape(str(proposal.get("rationale") or ""))[:6000]}</pre>
 <h2>Code change</h2>{diff}
 <h2>Gate result</h2><pre>{html.escape(gate)}</pre>
-<h2>Decide</h2><pre>approve: python -m roborsi.agents.evolution.apply_proposal {html.escape(pid)} --skip-harness
-reject:  python -m roborsi.agents.evolution.apply_proposal --reject {html.escape(pid)}</pre>
+<h2>Decide</h2><p>Manager suggests scope: <b>{html.escape(str(proposal.get("manager_scope") or "global"))}</b>
+(global = change the shared skill for every task; task = only for {html.escape(str(proposal.get("source_task") or proposal.get("task") or "the source task"))}).</p>
+<pre>approve for every task: python -m roborsi.agents.evolution.apply_proposal {html.escape(pid)} --skip-harness --scope global
+approve for this task:  python -m roborsi.agents.evolution.apply_proposal {html.escape(pid)} --skip-harness --scope task
+reject:                 python -m roborsi.agents.evolution.apply_proposal --reject {html.escape(pid)}</pre>
 </body></html>"""
     out = _HTML_DIR / f"{pid}.html"
     out.write_text(page, encoding="utf-8")

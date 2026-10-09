@@ -162,3 +162,23 @@ def test_libero_plus_panel_and_breakdown(tmp_path):
         _json.dumps({"task_key": first, "verdict": "success"}) + "\n")
     out = breakdown(str(tmp_path))
     assert out["total"] == {"success": 1, "valid": 1, "planned": 840}
+
+
+def test_task_local_skill_shadows_shared_only_for_its_task(monkeypatch, tmp_path):
+    import roborsi.embodied.skills as skills
+
+    def write(path, desc):
+        path.mkdir(parents=True)
+        (path / "SKILL.md").write_text(
+            f"---\nname: grip\nkind: base\ndescription: {desc}\n---\n")
+        (path / "policy.py").write_text("def dispatch_runtime(state, args):\n    return {}, None\n")
+
+    write(tmp_path / "base" / "grip" / "libero", "shared")
+    write(tmp_path / "task_local" / "libero_goal__3" / "base" / "grip" / "libero", "local")
+    monkeypatch.setattr(skills, "SHIPPED_ROOT", tmp_path)
+    monkeypatch.setattr(skills, "user_root", lambda: tmp_path / "none")
+    monkeypatch.setenv("ROBORSI_CURRENT_SIM_TASK", "libero_goal/3")
+    assert skills.get_ns("grip", "libero").description == "local"
+    monkeypatch.setenv("ROBORSI_CURRENT_SIM_TASK", "libero_goal/4")
+    assert skills.get_ns("grip", "libero").description == "shared"
+    assert all("task_local" not in s.path.relative_to(tmp_path).parts for s in skills.discover())

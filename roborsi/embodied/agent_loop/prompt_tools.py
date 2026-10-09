@@ -82,13 +82,17 @@ def _try_load_plugin_dispatcher(name: str, ns: str = "robotwin"):
     default "robotwin" keeps every existing caller unchanged. The cache is keyed
     by (ns, name) because a robotwin `set_gripper` and a libero `set_gripper` are
     different files."""
-    cache_key = (ns, name)
+    import os
+    task_key = os.environ.get("ROBORSI_CURRENT_SIM_TASK", "")
+    cache_key = (ns, name, task_key)
     if cache_key in _PLUGIN_CACHE:
         return _PLUGIN_CACHE[cache_key]
     from roborsi.embodied.skills import get_ns
     sk = get_ns(name, ns)
+    local = "task_local" in sk.path.parts if sk is not None else False
     handler = None if sk is None else _load_dispatch_runtime(
-        sk.path.parent / "policy.py", f"_baseplugin_{ns}_{name}")
+        sk.path.parent / "policy.py",
+        f"_baseplugin_{ns}_{name}" + (f"_{abs(hash(task_key))}" if local else ""))
     _PLUGIN_CACHE[cache_key] = handler
     return handler
 
