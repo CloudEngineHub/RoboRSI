@@ -13,7 +13,10 @@ description: Use when proposals are queued - check them against the preserved ev
    diagnosis is right but whose code or harness is flawed (untested branch,
    constant contradicted by the evidence, removed safety check), return a
    corrected `code_proposal` that fixes those flaws instead of only
-   rejecting it. Reject one-off strategy errors,
+   rejecting it. Likewise, when a failure hypothesis reports a real failure
+   but overstates or misplaces its cause, reject it and return a
+   `corrected_lead` (the cause the evidence does support and the next action)
+   so the lesson still reaches the task wiki. Reject one-off strategy errors,
    scene-specific constants, diagnoses the evidence contradicts, and
    failures presented as success.
 3. Keep reusable, parameterized behaviour in skills; keep coordinates and
