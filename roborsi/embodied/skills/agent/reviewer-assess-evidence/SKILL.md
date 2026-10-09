@@ -27,6 +27,9 @@ description: Use after every attempt to judge completion from images and the exe
 5. Propose a durable change only for a systematic, portable defect: a skill
    update, a new skill, or a wiki lead. A code change must include the full
    policy and a SKILL.md with a harness (development task, at least two
-   seeds, pass criteria). Queue proposals; never apply them.
+   seeds, pass criteria) whose task, seeds and arguments make the changed
+   code run, with a criterion the old code fails. Ground every constant in
+   cited steps and keep existing safety checks. Queue proposals; never apply
+   them.
 6. Never promote stale coordinates, failed motions or unverified success as
    reusable experience.

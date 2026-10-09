@@ -9,7 +9,11 @@ description: Use when proposals are queued - check them against the preserved ev
 
 1. Read the proposal, the cited trace and images, the target skill source,
    the task wiki and earlier Manager decisions.
-2. Reconstruct the failure and its layer. Reject one-off strategy errors,
+2. Reconstruct the failure and its layer. When you reject a proposal whose
+   diagnosis is right but whose code or harness is flawed (untested branch,
+   constant contradicted by the evidence, removed safety check), return a
+   corrected `code_proposal` that fixes those flaws instead of only
+   rejecting it. Reject one-off strategy errors,
    scene-specific constants, diagnoses the evidence contradicts, and
    failures presented as success.
 3. Keep reusable, parameterized behaviour in skills; keep coordinates and

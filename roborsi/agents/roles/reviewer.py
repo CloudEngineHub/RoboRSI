@@ -77,6 +77,14 @@ metadata.harness block: sim_task (a concrete simulator task key such as
 libero_goal/3, never the atomic name libero_pick_place), seeds (>=2 distinct integers), args (a list of argument
 dictionaries) and pass_criteria {kind, min_seeds_passing>=2}. Without it the
 Manager cannot run the simulator gate and the change is not published.
+The harness must exercise the code you changed: choose the task, seeds and
+arguments so the new branch actually runs (for a new side-entry route, an
+object and argument that the old routes cannot handle), and use a pass
+criterion that the old code would fail. A harness the unchanged skill
+already passes proves nothing and is rejected. Ground every constant in the
+trace (cite the steps that show the needed offset, tolerance or route), keep
+existing safety and reach checks, and change as little as the evidence
+requires.
 
 ━━ YOU ARE PART OF A SELF-EVOLUTION LOOP. Two hard expansions of your power, and
    one hard limit: ━━
