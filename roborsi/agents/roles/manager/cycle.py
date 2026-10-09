@@ -217,14 +217,14 @@ def cycle():
        log('code_apply',proposal=p.name,returncode=r.returncode,output=(r.stdout+r.stderr)[-1500:]);applied=r.returncode==0
        promote_by=os.environ.get('ROBORSI_GLOBAL_PROMOTION','manager')
        if applied and d.get('scope')=='global' and promote_by=='manager':
-        # The gate only validated the source task. Promote to the shared skill
-        # only if other tasks that use it do not regress.
-        from roborsi.agents.evolution.episode_gate import cross_task_gate
-        cg=cross_task_gate(q,source_task_key)
-        log('cross_task_gate',proposal=p.name,report=cg.to_dict())
-        if cg.overall_pass:
-         r2=subprocess.run([os.environ.get('ROBORSI_APPLY_PYTHON',os.sys.executable),'-m','roborsi.agents.evolution.apply_proposal',q['id'],'--skip-harness','--scope','global'],cwd=R,capture_output=True,text=True,timeout=180)
-         log('global_promotion',proposal=p.name,returncode=r2.returncode,output=(r2.stdout+r2.stderr)[-1000:])
+        # The gate only validated the source task. Promotion to the shared
+        # skill runs as a background job (other tasks must not regress) so it
+        # does not hold up the review of other proposals.
+        job=home()/'promotions'/(p.stem+'.json');job.parent.mkdir(exist_ok=True)
+        job.write_text(json.dumps({'proposal':q,'source_task':source_task_key},indent=2))
+        subprocess.Popen([os.sys.executable,'-m','roborsi.agents.evolution.promote',str(job)],cwd=R,
+                         stdout=open(str(job)+'.log','a'),stderr=subprocess.STDOUT,start_new_session=True)
+        log('cross_task_gate_started',proposal=p.name,job=str(job))
        elif applied and d.get('scope')=='global':
         # Promotion decided by a person.
         from roborsi.agents.evolution.html_review import render_awaiting_page
