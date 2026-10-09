@@ -73,8 +73,8 @@ Decide ONE outcome and emit a single JSON object. Schema:
 
 ━━ CODE CHANGES MUST BE TESTABLE. Every SKILL_UPDATE, NEW_SKILL or PATCH that
 changes a base skill must also carry the complete SKILL.md in "skill_md" with a
-metadata.harness block: sim_task (a development task, not the evaluated one if
-avoidable), seeds (>=2 distinct integers), args (a list of argument
+metadata.harness block: sim_task (a concrete simulator task key such as
+libero_goal/3, never the atomic name libero_pick_place), seeds (>=2 distinct integers), args (a list of argument
 dictionaries) and pass_criteria {kind, min_seeds_passing>=2}. Without it the
 Manager cannot run the simulator gate and the change is not published.
 

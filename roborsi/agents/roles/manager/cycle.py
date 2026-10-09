@@ -33,6 +33,14 @@ def validate_code(q):
         assert (h.get('pass_criteria') or {}).get('kind') in (('simulator_task_success','grasp_holds_actor','verify_returns_bool','move_completes','tool_returns_well_formed') if q.get('development_mode')=='native' else ('simulator_task_success',))
         assert len(set(h.get('seeds',[])))>=2
         assert int((h.get('pass_criteria') or {}).get('min_seeds_passing',0))>=2
+        task=q.get('source_task') or q.get('task') or ''
+        if '/' not in str(h.get('sim_task') or '') and '/' in str(task):
+            # A harness must boot a concrete simulator task; an atomic name such
+            # as libero_pick_place is not one. Use the source task instead.
+            h['sim_task']=task
+            fm.setdefault('metadata',{})['harness']=h
+            body=md.split('---',2)[2]
+            q['skill_md']='---\n'+yaml.safe_dump(fm,sort_keys=False,allow_unicode=True)+'---'+body
     except Exception:
         # No usable skill harness: validate the change with whole RoboRSI
         # episodes on the source task and disjoint development seeds.
