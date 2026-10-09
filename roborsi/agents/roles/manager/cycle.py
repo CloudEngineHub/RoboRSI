@@ -215,9 +215,18 @@ def cycle():
        # Gate was just executed. apply performs its own capability safety check.
        r=subprocess.run([os.environ.get('ROBORSI_APPLY_PYTHON',os.sys.executable),'-m','roborsi.agents.evolution.apply_proposal',q['id'],'--skip-harness','--scope','task','--task',str(source_task_key)],cwd=R,capture_output=True,text=True,timeout=180)
        log('code_apply',proposal=p.name,returncode=r.returncode,output=(r.stdout+r.stderr)[-1500:]);applied=r.returncode==0
-       if applied and d.get('scope')=='global':
-        # The gate only validated the source task. A change to the shared
-        # skill needs evidence beyond it, so a person decides the promotion.
+       promote_by=os.environ.get('ROBORSI_GLOBAL_PROMOTION','manager')
+       if applied and d.get('scope')=='global' and promote_by=='manager':
+        # The gate only validated the source task. Promote to the shared skill
+        # only if other tasks that use it do not regress.
+        from roborsi.agents.evolution.episode_gate import cross_task_gate
+        cg=cross_task_gate(q,source_task_key)
+        log('cross_task_gate',proposal=p.name,report=cg.to_dict())
+        if cg.overall_pass:
+         r2=subprocess.run([os.environ.get('ROBORSI_APPLY_PYTHON',os.sys.executable),'-m','roborsi.agents.evolution.apply_proposal',q['id'],'--skip-harness','--scope','global'],cwd=R,capture_output=True,text=True,timeout=180)
+         log('global_promotion',proposal=p.name,returncode=r2.returncode,output=(r2.stdout+r2.stderr)[-1000:])
+       elif applied and d.get('scope')=='global':
+        # Promotion decided by a person.
         from roborsi.agents.evolution.html_review import render_awaiting_page
         q2=json.loads(p.read_text()) if p.exists() else dict(q)
         q2['manager_scope']='global';q2['status']='awaiting_global_promotion'

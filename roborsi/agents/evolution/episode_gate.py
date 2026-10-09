@@ -45,7 +45,11 @@ def _write_candidate(tree: Path, q: dict) -> None:
         raise ValueError("a new skill needs a SKILL.md")
 
 
-def run(q: dict, task_key: str | None) -> EpisodeGateReport:
+def run(q: dict, task_key: str | None, *, apply_candidate: bool = True,
+        min_pass: int | None = None) -> EpisodeGateReport:
+    """Run the gate episodes; apply_candidate=False measures the current
+    shared library on the same task and seeds (the baseline)."""
+    need = MIN_PASS if min_pass is None else min_pass
     if not task_key:
         return EpisodeGateReport(False, "no source task to validate on")
     tmp = Path(tempfile.mkdtemp(prefix="roborsi-gate-"))
@@ -53,12 +57,14 @@ def run(q: dict, task_key: str | None) -> EpisodeGateReport:
     try:
         subprocess.run(["git", "worktree", "add", "--detach", str(tree), "HEAD"],
                        cwd=R, check=True, capture_output=True)
-        _write_candidate(tree, q)
+        if apply_candidate:
+            _write_candidate(tree, q)
         # Eval mode needs a clean tree; commit the candidate in the throw-away worktree.
-        subprocess.run(["git", "add", "-A"], cwd=tree, check=True, capture_output=True)
-        subprocess.run(["git", "-c", "user.name=RoboRSI Gate", "-c", "user.email=gate@localhost",
-                        "commit", "-q", "-m", "gate candidate"], cwd=tree, check=True,
-                       capture_output=True)
+        if apply_candidate:
+            subprocess.run(["git", "add", "-A"], cwd=tree, check=True, capture_output=True)
+            subprocess.run(["git", "-c", "user.name=RoboRSI Gate", "-c", "user.email=gate@localhost",
+                            "commit", "-q", "-m", "gate candidate"], cwd=tree, check=True,
+                           capture_output=True)
         out = tmp / "campaign"
         model = os.environ.get("ROBORSI_EVAL_MODEL") or os.environ.get(
             "ROBORSI_MANAGER_MODEL", "gpt-5.6-sol")
@@ -87,12 +93,61 @@ def run(q: dict, task_key: str | None) -> EpisodeGateReport:
             if row.get("verdict") in ("success", "failure"):
                 verdicts[int(row["seed"])] = row["verdict"]
         passes = sum(v == "success" for v in verdicts.values())
-        ok = passes >= MIN_PASS and len(verdicts) == len(DEV_SEEDS)
+        ok = passes >= need and len(verdicts) == len(DEV_SEEDS)
         return EpisodeGateReport(
             ok, f"episode gate {passes}/{len(DEV_SEEDS)} on {task_key} "
-                f"seeds {DEV_SEEDS} (need {MIN_PASS})",
-            {"verdicts": verdicts, "returncode": proc.returncode})
+                f"seeds {DEV_SEEDS} (need {need})",
+            {"verdicts": verdicts, "passes": passes, "returncode": proc.returncode})
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(tree)],
                        cwd=R, capture_output=True)
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def tasks_using_skill(skill: str, exclude: str | None, limit: int) -> list[str]:
+    """Other tasks whose recorded episodes called ``skill``, most recent first."""
+    import glob
+    from roborsi.embodied.paths import home
+
+    found: list[str] = []
+    for ws in sorted(glob.glob(str(home() / "workspaces" / "*")), reverse=True):
+        ident = Path(ws) / "episode_identity.json"
+        if not ident.exists():
+            continue
+        try:
+            key = json.loads(ident.read_text()).get("task_key")
+        except ValueError:
+            continue
+        if not key or key == exclude or key in found:
+            continue
+        for trace in glob.glob(f"{ws}/rollout/round_*/*/trace.json"):
+            try:
+                steps = json.loads(Path(trace).read_text())
+            except ValueError:
+                continue
+            if any((s.get("tool_call") or {}).get("tool") == skill for s in steps):
+                found.append(key)
+                break
+        if len(found) >= limit:
+            break
+    return found
+
+
+def cross_task_gate(q: dict, source_task: str | None) -> EpisodeGateReport:
+    """Promotion check for a shared-skill change: on other tasks that use the
+    skill, the candidate must do at least as well as the current shared skill
+    on the same development seeds."""
+    n = int(os.environ.get("ROBORSI_GLOBAL_GATE_TASKS", "2"))
+    others = tasks_using_skill(str(q.get("name", "")), source_task, n)
+    if len(others) < n:
+        return EpisodeGateReport(False, f"only {len(others)} other tasks used this skill (need {n})",
+                                 {"tasks": others})
+    rows = {}
+    for task in others:
+        cand = run(q, task, min_pass=0)
+        base = run(q, task, apply_candidate=False, min_pass=0)
+        rows[task] = {"candidate": cand.details.get("passes"), "baseline": base.details.get("passes")}
+        if cand.details.get("passes") is None or base.details.get("passes") is None \
+                or cand.details["passes"] < base.details["passes"]:
+            return EpisodeGateReport(False, f"regression on {task}", rows)
+    return EpisodeGateReport(True, f"no regression on {len(others)} other tasks", rows)

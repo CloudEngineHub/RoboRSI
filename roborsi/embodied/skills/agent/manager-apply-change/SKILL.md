@@ -34,8 +34,8 @@ description: Use when proposals are queued - check them against the preserved ev
    (`skills/task_local/<task>/`): the simulator gate validated it there and
    nowhere else. Still say which scope you recommend. `global` means the fix
    is general (a real bug, a missing check, better geometry) and should
-   replace the shared skill; that promotion is listed for a person to
-   approve. `task` means it suits this scene or object only.
+   replace the shared skill; it is promoted only after other tasks that use
+   the skill show no regression (or, if configured, after a person approves). `task` means it suits this scene or object only.
 7. Approve a cross-task lesson only when the evidence supports it and it
    transfers beyond the source task.
 8. Record every decision with its reason.

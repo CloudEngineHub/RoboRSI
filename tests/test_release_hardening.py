@@ -182,3 +182,22 @@ def test_task_local_skill_shadows_shared_only_for_its_task(monkeypatch, tmp_path
     monkeypatch.setenv("ROBORSI_CURRENT_SIM_TASK", "libero_goal/4")
     assert skills.get_ns("grip", "libero").description == "shared"
     assert all("task_local" not in s.path.relative_to(tmp_path).parts for s in skills.discover())
+
+
+def test_tasks_using_skill_finds_other_tasks(monkeypatch, tmp_path):
+    import json as _json
+
+    from roborsi.agents.evolution.episode_gate import tasks_using_skill
+
+    monkeypatch.setenv("ROBORSI_HOME", str(tmp_path))
+    for i, (task, tool) in enumerate([("libero_goal/1", "grasp_object"),
+                                      ("libero_goal/2", "push_object"),
+                                      ("libero_goal/3", "grasp_object"),
+                                      ("libero_goal/4", "grasp_object")]):
+        ws = tmp_path / "workspaces" / f"w{i}"
+        rd = ws / "rollout" / "round_01" / "t"
+        rd.mkdir(parents=True)
+        (ws / "episode_identity.json").write_text(_json.dumps({"task_key": task}))
+        (rd / "trace.json").write_text(_json.dumps([{"tool_call": {"tool": tool}}]))
+    found = tasks_using_skill("grasp_object", "libero_goal/4", 5)
+    assert set(found) == {"libero_goal/1", "libero_goal/3"}

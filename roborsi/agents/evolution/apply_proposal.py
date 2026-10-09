@@ -360,7 +360,8 @@ def main() -> int:
     new_fp = archive / fp.name
     new_fp.write_text(json.dumps(data, indent=2, ensure_ascii=False),
                         encoding="utf-8")
-    fp.unlink()
+    if fp.resolve() != new_fp.resolve():
+        fp.unlink()
     _td.update_proposal_status(pid, "applied", applied_by="operator",
                                   note=f"files: {files}")
     return 0
