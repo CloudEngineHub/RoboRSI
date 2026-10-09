@@ -34,7 +34,6 @@ returns:
   visual_verified: bool
   identity_verified: bool
   do_not_regrasp: bool
-  hold_reference_missing: bool
   requested_object: string
   held_object: string
   requested_matches_held: bool
@@ -45,9 +44,7 @@ when_to_use: |
   a visually meaningful name. If grasped=false, inspect the current image, then
   inspect holding and do_not_regrasp. Retry only when holding=false and the scene
   provides a fresh, stable target observation. If do_not_regrasp=true, never call
-  grasp_object again and never open the gripper. If hold_reference_missing=true,
-  the object is held but cannot be placed; open the gripper over its source with
-  gripper, then call grasp_object again.
+  grasp_object again and never open the gripper.
 ---
 
 # grasp_object

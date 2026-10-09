@@ -8,7 +8,6 @@ import pytest
 import roborsi.embodied.skills.base._lib.libero._perception as perception
 import roborsi.embodied.skills.base.find_by_pointing.libero.policy as pointing
 import roborsi.embodied.skills.base.grasp_object.libero.policy as grasp
-from roborsi.embodied.skills.base._lib.libero.instance_hold import mask_world_cloud
 from roborsi.embodied.skills.base._lib.libero.gripper_state import (
     GripperState,
 )
@@ -88,17 +87,12 @@ def test_pointing_provenance_rejects_changed_frame_or_object(monkeypatch) -> Non
 
 
 def test_grasp_reuses_matching_pointing_without_second_identity_call(
-    monkeypatch, authenticated_pickup,
+    monkeypatch,
 ) -> None:
     before = np.zeros((32, 32, 3), dtype=np.uint8)
     after = before.copy()
     after[8:24, 8:24] = 200
     env = _PointEnv(before)
-    reference = authenticated_pickup(env, source_pixel=(16, 16), object_name="black bowl in the middle")
-    env.frame = env.coherent_sensor_frame().rgb.copy()
-    before = env.frame.copy()
-    after = before.copy()
-    after[14:20, 14:20] = 0
     assert _point(monkeypatch, env)["ok"] is True
 
     class _Control:
@@ -131,18 +125,12 @@ def test_grasp_reuses_matching_pointing_without_second_identity_call(
     monkeypatch.setattr(
         perception,
         "grasps_at_pixel",
-        lambda *args, **kwargs: ([object()],
-            mask_world_cloud(env.coherent_sensor_frame(), reference.pickup_mask)),
+        lambda *args, **kwargs: ([object()], None),
     )
 
     def _execute(*args, **kwargs):
         _ = (args, kwargs)
         env.frame = after.copy()
-        env._libero_grasp_closure_pose = {
-            "position": [0.0, 0.0, 1.0], "quaternion_xyzw": [0.0, 0.0, 0.0, 1.0],
-            "generation": (1, 0), "reset_generation": 1,
-            "attempt_token": env._libero_grasp_attempt_token,
-        }
         return (
             np.array([0.0, 0.0, 0.5]),
             np.array([0.0, 0.0, 0.8]),

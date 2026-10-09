@@ -30,11 +30,12 @@ description: Use when proposals are queued - check them against the preserved ev
    skill harness when it exists, otherwise whole episodes on development
    seeds disjoint from evaluation seeds. Code you write yourself is queued
    for a later review, never self-approved.
-6. Choose the scope of an approved code change. `global` changes the shared
-   skill for every task; use it when the fix is general (a real bug, a
-   missing check, better geometry). `task` installs the revised skill only
-   for the source task (`skills/task_local/<task>/`); use it when the change
-   suits that scene or object but could hurt other tasks.
+6. A change you approve is installed for the source task only
+   (`skills/task_local/<task>/`): the simulator gate validated it there and
+   nowhere else. Still say which scope you recommend. `global` means the fix
+   is general (a real bug, a missing check, better geometry) and should
+   replace the shared skill; that promotion is listed for a person to
+   approve. `task` means it suits this scene or object only.
 7. Approve a cross-task lesson only when the evidence supports it and it
    transfers beyond the source task.
 8. Record every decision with its reason.

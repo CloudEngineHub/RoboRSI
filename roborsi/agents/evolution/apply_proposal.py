@@ -42,6 +42,10 @@ def _git(*args: str) -> subprocess.CompletedProcess:
 def _find_file(proposal_id: str) -> Path | None:
     for fp in QUEUE.glob(f"{proposal_id}*.json"):
         return fp
+    # A change already installed for its task can still be promoted to the
+    # shared skill (--scope global) from the applied archive.
+    for fp in (QUEUE / "applied").glob(f"{proposal_id}*.json"):
+        return fp
     for fp in QUEUE.glob("*.json"):
         try:
             d = json.loads(fp.read_text(encoding="utf-8"))

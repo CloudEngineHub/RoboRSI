@@ -188,7 +188,7 @@ table.diff{{font-family:monospace;font-size:12px;border-collapse:collapse}} .dif
 .diff_chg{{background:#fff3b0}} .diff_sub{{background:#f8d4d4}} pre{{background:#f6f6f6;padding:10px;white-space:pre-wrap}}</style>
 </head><body>
 <h1>Pending change: <code>{html.escape(name)}</code> ({html.escape(str(proposal.get("kind")))})</h1>
-<p><b>Status:</b> approved by the Manager, simulator gate passed, waiting for human review.<br>
+<p><b>Status:</b> {html.escape("installed for its source task only; promotion to the shared skill waits for you" if proposal.get("status") == "awaiting_global_promotion" else "approved by the Manager, simulator gate passed, waiting for human review")}.<br>
 <b>Source task:</b> {html.escape(str(proposal.get("source_task") or proposal.get("task") or ""))} ·
 <b>Proposal:</b> <code>{html.escape(pid)}</code></p>
 <h2>Why</h2><p><b>Manager:</b> {html.escape(manager_reason)}</p>

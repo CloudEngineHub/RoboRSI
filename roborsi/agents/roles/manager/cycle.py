@@ -213,8 +213,16 @@ def cycle():
        log('awaiting_human',proposal=p.name,page=str(page))
       elif gate is not None and gate.overall_pass:
        # Gate was just executed. apply performs its own capability safety check.
-       r=subprocess.run([os.environ.get('ROBORSI_APPLY_PYTHON',os.sys.executable),'-m','roborsi.agents.evolution.apply_proposal',q['id'],'--skip-harness','--scope',('task' if d.get('scope')=='task' else 'global')]+(['--task',str(source_task_key)] if d.get('scope')=='task' and source_task_key else []),cwd=R,capture_output=True,text=True,timeout=180)
+       r=subprocess.run([os.environ.get('ROBORSI_APPLY_PYTHON',os.sys.executable),'-m','roborsi.agents.evolution.apply_proposal',q['id'],'--skip-harness','--scope','task','--task',str(source_task_key)],cwd=R,capture_output=True,text=True,timeout=180)
        log('code_apply',proposal=p.name,returncode=r.returncode,output=(r.stdout+r.stderr)[-1500:]);applied=r.returncode==0
+       if applied and d.get('scope')=='global':
+        # The gate only validated the source task. A change to the shared
+        # skill needs evidence beyond it, so a person decides the promotion.
+        from roborsi.agents.evolution.html_review import render_awaiting_page
+        q2=json.loads(p.read_text()) if p.exists() else dict(q)
+        q2['manager_scope']='global';q2['status']='awaiting_global_promotion'
+        page=render_awaiting_page(q2,manager_reason=d.get('reason',''),gate_report=gate.to_dict(),repo=R)
+        log('awaiting_global_promotion',proposal=p.name,page=str(page))
        if not applied:
         q=json.loads(p.read_text());q['status']='apply_failed';p.write_text(json.dumps(q,indent=2))
       elif gate is not None:
