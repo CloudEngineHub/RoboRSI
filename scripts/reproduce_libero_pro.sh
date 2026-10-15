@@ -94,6 +94,9 @@ export ROBORSI_LIBERO_BDDLDIR="${ASSETS_DIR}/bddl_files"
 export ROBORSI_LIBERO_INITDIR="${ASSETS_DIR}/init_files"
 log "running backend health check on a perturbed LIBERO-PRO task"
 roborsi libero doctor --backend libero-pro --task libero_object_task/0 --reset
+if [ "${ROBORSI_REPRO_BENCHMARK:-}" = "libero" ]; then
+  ROBORSI_LIBERO_SUITES=libero_object roborsi libero doctor --backend libero-pro --task libero_object/0 --reset
+fi
 
 # ── 4 · PyRoKi IK / trajectory-optimization service ─────────────────────────
 # PyRoKi needs jax with numpy<2, which conflicts with the eval environment,
@@ -163,10 +166,18 @@ _grasps_from_cloud(cloud, top_k=1, host=os.environ["GRASPGEN_HOST"], port=int(os
 PYEOF
 fi
 
-# ── 5 · frozen Pass-1 campaign (resumable) ──────────────────────────
-log "launching the frozen Pass-1 campaign → ${OUT_DIR}"
+# ── 5 · campaign (resumable) ────────────────────────────────────────
+# ROBORSI_REPRO_BENCHMARK=libero|libero-pro runs the paper protocol in evolve
+# mode (scripts/run_paper_campaign.sh, used by scripts/reproduce_paper.sh);
+# unset runs the frozen Pass-1 baseline.
 set +e
-"${REPO_ROOT}/scripts/run_libero_pro_matched_pass1.sh" "${OUT_DIR}"
+if [ -n "${ROBORSI_REPRO_BENCHMARK:-}" ]; then
+  log "launching the ${ROBORSI_REPRO_BENCHMARK} paper-protocol campaign (evolve) → ${OUT_DIR}"
+  "${REPO_ROOT}/scripts/run_paper_campaign.sh" "${ROBORSI_REPRO_BENCHMARK}" "${OUT_DIR}"
+else
+  log "launching the frozen Pass-1 campaign → ${OUT_DIR}"
+  "${REPO_ROOT}/scripts/run_libero_pro_matched_pass1.sh" "${OUT_DIR}"
+fi
 CAMPAIGN_RC=$?
 set -e
 [ -f "${OUT_DIR}/campaign.json" ] || die "the campaign did not start (exit ${CAMPAIGN_RC}); see the messages above"
@@ -180,4 +191,11 @@ fi
 log "auditing the campaign journal"
 roborsi eval-audit "${OUT_DIR}" --check-media
 
+python - "${OUT_DIR}/summary.json" <<'PYEOF'
+import json, sys
+s = json.load(open(sys.argv[1]))
+valid = s["episode_successes"] + s["episode_failures"]
+print(f"episode success {s['episode_successes']}/{valid} ({100 * s['episode_success_rate']:.1f}%) · "
+      f"tasks solved {s['tasks_solved']}/{s['tasks_total']} ({100 * s['task_success_rate']:.1f}%)")
+PYEOF
 log "done. summary: ${OUT_DIR}/summary.json · journal: ${OUT_DIR}/episodes.jsonl"

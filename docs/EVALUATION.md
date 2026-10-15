@@ -174,19 +174,41 @@ breakdowns, terminal counts, infrastructure exclusion, unresolved
 implementation errors, success-lock behavior, and summary parity. It writes
 `audit.json` beside the original immutable manifest and append-only journal.
 
-### Historical result boundary
+### Relation to the paper
 
-The previously reported LIBERO-PRO `80/120` is a historical adaptive,
-cross-release seed-0 result. It accumulated successes across five code
-releases and reran only tasks that had not yet succeeded. Its first-stage
-`43/120` was itself a closure over several disjoint runs and recovery runs.
-Neither number is a fixed-policy single pass.
+This Pass 1 is not an experiment in the paper. It measures one frozen
+release, one episode per LIBERO-PRO task. The paper's LIBERO-PRO result
+(297/600 episodes, 102/120 tasks) runs five episodes per task while RoboRSI
+improves online; use `scripts/reproduce_paper.sh libero-pro` for that
+protocol (next section).
 
-The script above intentionally measures a stricter object: one current frozen
-release over all 120 tasks. It is the supported path for a fresh simulator
-rerun. Historical summary artifacts can be audited as retained evidence, but
-they must not be presented as though this command deterministically recreates
-the old `80/120`.
+## Reproduce the paper's simulation results
+
+```bash
+scripts/reproduce_paper.sh libero       # Table 1 LIBERO:      30 tasks x 5 episodes, evolve
+scripts/reproduce_paper.sh libero-pro   # Table 1 LIBERO-PRO: 120 tasks x 5 episodes, evolve
+scripts/reproduce_paper.sh libero-plus  # Table 1 LIBERO-Plus: 840 instances, LIBERO library frozen
+```
+
+`libero` and `libero-pro` set up the same environment as
+`reproduce_libero_pro.sh` and then run `scripts/run_paper_campaign.sh`:
+seeds 0-4 for every task, every episode run (`--run-all-seeds`), evolve
+mode, tool budget 80, reasoning effort `medium`, the same model for every
+role. The suites are `libero_spatial`, `libero_object` and `libero_goal`
+for LIBERO and the twelve perturbed short suites for LIBERO-PRO. Evolution
+happens on a copy of the skill library under `<out>/library`, with the wiki
+and sessions in `~/.roborsi-paper-<benchmark>`.
+
+`libero-plus` runs `reproduce_libero_plus.sh` from the library produced by
+the `libero` run, with that run's wiki, in frozen mode, as in the paper
+(the library obtained on LIBERO is held fixed on the perturbed instances).
+
+Each run ends with the audit and a line such as
+`episode success 84/150 (56.0%) · tasks solved 24/30 (80.0%)`, the two
+columns of Table 1. Because RoboRSI learns during the run, the numbers vary
+with the model and with what a particular run learns; expect results near,
+not equal to, the paper's. RoboTwin runs in its own environment
+([sim-robotwin.md](./sim-robotwin.md)) and has no one-click script.
 
 ## Benchmarking
 

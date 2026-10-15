@@ -36,19 +36,26 @@ Paper: <https://arxiv.org/abs/2610.12424> · Project page: <https://lab.noematri
 
 ## Results
 
-| Metric | Result | Scope |
-|---|---:|---|
-| LIBERO cumulative task pass rate | **95/120** | Cross-release adaptive coverage; ten sequential rounds moved 32/120 → 83/120 |
-| LIBERO-PRO cumulative task pass rate | **80/120** | Five adaptive releases, 43 → 80 cumulative task coverage |
-| LIBERO-Plus perturbation-instance pass rate | **398/840** adaptive Pass@2 | 840 = 7 perturbation categories × 120 instances; fixed release 261/840; +16.3 points |
-| Matched Code-on / Code-off episode pass rate | **174/600 vs 129/600** | 120 tasks × 5 initial layouts per group; +7.5 points |
-| Matched efficiency panel (118 tasks) | tokens **−29.4%** · VLM calls **−27.2%** · wall time **−17.0%** | Median Code-on vs Code-off |
-| RoboTwin cumulative task pass rate | **36/50** | Planner + Engineer + Reviewer; single-role baseline 9/50 |
-| Corrective learning-based policy case | 1 matched task success | 304-frame corrective trajectory → 2,432 samples → 1,000-step fine-tune |
+Simulation results from Table 1 of the [paper](https://arxiv.org/abs/2610.12424).
+All methods use GPT-5.6-SOL. Success is successful/valid episodes; coverage
+counts each task once after its first success.
 
-Cumulative task pass rates count tasks passed at least once across evolving
-releases; they are not frozen-policy scores or fixed-method Pass@k. Full
-calibers, videos, and exact tool traces are on the
+| Benchmark | Protocol | Success | Coverage | Strongest baseline (OpenETA) |
+|---|---|---:|---:|---:|
+| LIBERO | 30 tasks × 5 episodes, improving online | **84/150 (56.0%)** | 24/30 | 76/150 (50.7%) |
+| LIBERO-PRO | 120 tasks × 5 episodes, improving online | **297/600 (49.5%)** | 102/120 | 231/600 (38.5%) |
+| LIBERO-Plus | 840 perturbation instances of 30 tasks, LIBERO library held fixed | **354/840 (42.1%)** | 28/30 | 306/840 (36.4%) |
+| RoboTwin | 50 tasks, first 154 episodes of the online run | **37/154 (24.0%)** | 26/50 | 32/150 (21.3%) |
+
+Ablations in the paper:
+
+| Study | Result |
+|---|---|
+| Role separation (RoboTwin, full online run) | Planner + Engineer + Reviewer solve 36/50 tasks; a single Engineer solves 9/50 |
+| Code consolidation (120 LIBERO-Plus tasks × 5 seeds, matched pairs) | Code on 174/600 (29.0%) vs Code off 129/600 (21.5%); median tokens −29.4%, model calls −27.2%, wall time −17.0% |
+| Policies from execution data (ACT, 10,000 steps) | Chunk-relative joint targets: click_bell 4/10, click_alarmclock 6/7 on training layouts and 2/3 on unseen layouts; absolute targets solve none |
+
+Videos and exact tool traces are on the
 [project page](https://lab.noematrix.ai/blog/2-roborsi/).
 
 ## How It Works
@@ -84,25 +91,36 @@ scores independently.
 
 ```bash
 git clone --recursive https://github.com/nssmd/RoboRSI.git && cd RoboRSI
-export OPENAI_API_KEY="..."   # any OpenAI-compatible Responses endpoint
-scripts/reproduce_libero_pro.sh
+export OPENAI_API_KEY="..."            # any OpenAI-compatible Responses endpoint
+export ROBORSI_EVAL_MODEL="..."        # the paper uses GPT-5.6-SOL
+scripts/reproduce_paper.sh libero       # LIBERO, 30 tasks x 5 episodes, evolve
+scripts/reproduce_paper.sh libero-pro   # LIBERO-PRO, 120 tasks x 5 episodes, evolve
+scripts/reproduce_paper.sh libero-plus  # LIBERO-Plus, 840 instances, LIBERO library frozen
 ```
 
-The script creates an isolated environment, installs RoboRSI, clones
+Each command creates an isolated environment, installs RoboRSI, clones
 LIBERO-PRO, downloads the official perturbation assets from
 [`zhouxueyang/LIBERO-Pro`](https://huggingface.co/datasets/zhouxueyang/LIBERO-Pro),
-configures and health-checks the backend, starts the PyRoKi IK/trajectory
-service, launches a frozen Pass-1 campaign, and audits the journal.
-It is idempotent and resumable. A fresh campaign evaluates the current
-frozen release; it does not replay the cumulative results above
-(see [docs/EVALUATION.md](./docs/EVALUATION.md)).
+health-checks the backend, starts the PyRoKi IK/trajectory service (and
+GraspGen if configured), runs the paper protocol, audits the journal, and
+prints episode success and coverage. `libero` and `libero-pro` evolve while
+they are evaluated, on a copy of the skill library under the output
+directory; `libero-plus` evaluates the library and wiki produced by the
+`libero` run without changing them, so run `libero` first. Every command is
+resumable. Because the system learns during the run, results vary with the
+model and the run and are not expected to match the table exactly.
+
+`scripts/reproduce_libero_pro.sh` runs a different, stricter measurement:
+the current release frozen, one episode per LIBERO-PRO task (Pass 1). It is
+not an experiment in the paper. See [docs/EVALUATION.md](./docs/EVALUATION.md).
+
+RoboTwin runs in its own conda environment; see
+[docs/sim-robotwin.md](./docs/sim-robotwin.md).
 
 ### Manual installation
 
 See [docs/INSTALLATION.md](./docs/INSTALLATION.md) and
 [docs/DOCKERINSTALLATION.md](./docs/DOCKERINSTALLATION.md).
-
-LIBERO-Plus (840 perturbation instances, frozen): `scripts/reproduce_libero_plus.sh` (see [docs/EVALUATION.md](./docs/EVALUATION.md)).
 
 Connecting your own robot: see [roborsi/embodied/embodiment/README.md](./roborsi/embodied/embodiment/README.md).
 

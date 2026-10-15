@@ -34,19 +34,26 @@ policy,失败则回到最早出错的节点修订。
 
 ## 实验结果
 
-| 指标 | 结果 | 口径 |
-|---|---:|---|
-| LIBERO 累计任务通过率 | **95/120** | 跨 release 自适应覆盖;十轮顺序迭代从 32/120 提升到 83/120 |
-| LIBERO-PRO 累计任务通过率 | **80/120** | 五个自适应 release,累计任务覆盖 43 → 80 |
-| LIBERO-Plus 扰动实例通过率 | **398/840**(自适应 Pass@2) | 840 = 7 类扰动 × 每类 120 个实例;固定版本 261/840;提升 16.3 个百分点 |
-| Code-on / Code-off 回合通过率 | **174/600 vs 129/600** | 每组 120 个任务 × 5 个初始布局;提升 7.5 个百分点 |
-| 匹配效率面板(118 个任务) | Token **−29.4%** · VLM 调用 **−27.2%** · 墙钟时间 **−17.0%** | Code-on 对 Code-off 的中位数 |
-| RoboTwin 累计任务通过率 | **36/50** | Planner + Engineer + Reviewer;单角色 baseline 9/50 |
-| 纠正数据训练 learning-based policy | 1 个同任务成功案例 | 304 帧纠正轨迹 → 2,432 个样本 → 1,000 步微调 |
+以下是[论文](https://arxiv.org/abs/2610.12424)表 1 的仿真结果。所有方法都使用
+GPT-5.6-SOL。成功率 = 成功 episode / 有效 episode;覆盖率按任务计,一个任务
+首次成功后计一次。
 
-累计任务通过率统计的是"至少通过一次"的任务数,跨演化中的多个
-release,不是固定策略分数,也不是常规固定方法的 Pass@k。完整口径、视频与
-精确工具调用链见[项目主页](https://lab.noematrix.ai/blog/2-roborsi/)。
+| Benchmark | 协议 | 成功率 | 覆盖率 | 最强 baseline(OpenETA) |
+|---|---|---:|---:|---:|
+| LIBERO | 30 个任务 × 5 个 episode,边测边进化 | **84/150(56.0%)** | 24/30 | 76/150(50.7%) |
+| LIBERO-PRO | 120 个任务 × 5 个 episode,边测边进化 | **297/600(49.5%)** | 102/120 | 231/600(38.5%) |
+| LIBERO-Plus | 30 个任务的 840 个扰动实例,LIBERO 技能库冻结 | **354/840(42.1%)** | 28/30 | 306/840(36.4%) |
+| RoboTwin | 50 个任务,在线运行的前 154 个 episode | **37/154(24.0%)** | 26/50 | 32/150(21.3%) |
+
+论文中的消融实验:
+
+| 实验 | 结果 |
+|---|---|
+| 角色分离(RoboTwin,完整在线运行) | Planner + Engineer + Reviewer 解决 36/50 个任务;单个 Engineer 解决 9/50 |
+| 代码固化(LIBERO-Plus 的 120 个任务 × 5 个 seed,配对比较) | Code on 174/600(29.0%),Code off 129/600(21.5%);token 中位数 −29.4%,模型调用 −27.2%,墙钟时间 −17.0% |
+| 用执行数据训练策略(ACT,10,000 步) | 相对动作块起点的关节目标:click_bell 4/10;click_alarmclock 训练布局 6/7、未见布局 2/3;绝对关节目标全部失败 |
+
+视频与精确工具调用链见[项目主页](https://lab.noematrix.ai/blog/2-roborsi/)。
 
 ## 工作原理
 
@@ -78,24 +85,32 @@ commit,全部历史可审计。
 
 ```bash
 git clone --recursive https://github.com/nssmd/RoboRSI.git && cd RoboRSI
-export OPENAI_API_KEY="..."   # 任意 OpenAI 兼容 Responses 端点
-scripts/reproduce_libero_pro.sh
+export OPENAI_API_KEY="..."            # 任意 OpenAI 兼容 Responses 端点
+export ROBORSI_EVAL_MODEL="..."        # 论文使用 GPT-5.6-SOL
+scripts/reproduce_paper.sh libero       # LIBERO,30 个任务 × 5 个 episode,进化模式
+scripts/reproduce_paper.sh libero-pro   # LIBERO-PRO,120 个任务 × 5 个 episode,进化模式
+scripts/reproduce_paper.sh libero-plus  # LIBERO-Plus,840 个实例,LIBERO 技能库冻结
 ```
 
-脚本自动完成:创建隔离环境 → 安装 RoboRSI → clone LIBERO-PRO → 从
+每条命令自动完成:创建隔离环境 → 安装 RoboRSI → clone LIBERO-PRO → 从
 HuggingFace 官方数据集
 [`zhouxueyang/LIBERO-Pro`](https://huggingface.co/datasets/zhouxueyang/LIBERO-Pro)
-下载扰动资产 → 配置并体检后端 → 启动 PyRoKi IK/轨迹优化服务 → 启动冻结
-Pass-1 冻结评测 → 独立复核 journal。脚本幂等、可断点续跑。新评测针对
-当前冻结 release,不回放上表中的累计结果(边界见
-[docs/EVALUATION.md](./docs/EVALUATION.md))。
+下载扰动资产 → 体检后端 → 启动 PyRoKi IK/轨迹优化服务(配置了 GraspGen 时也
+一并启动)→ 按论文协议运行 → 复核 journal → 输出成功率和覆盖率。`libero` 与
+`libero-pro` 边测边进化,进化发生在输出目录下的技能库副本上;`libero-plus`
+冻结使用 `libero` 运行得到的技能库和 wiki,所以要先跑 `libero`。所有命令都可以
+断点续跑。系统在运行中学习,结果随模型和运行过程变化,不会和上表完全一致。
+
+`scripts/reproduce_libero_pro.sh` 是另一种更严格的测量:当前版本冻结,LIBERO-PRO
+每个任务只跑一次(Pass 1),不对应论文中的实验。见
+[docs/EVALUATION.md](./docs/EVALUATION.md)。
+
+RoboTwin 需要单独的 conda 环境,见 [docs/sim-robotwin.md](./docs/sim-robotwin.md)。
 
 ### 手动安装
 
 见 [docs/INSTALLATION.md](./docs/INSTALLATION.md) 与
 [docs/DOCKERINSTALLATION.md](./docs/DOCKERINSTALLATION.md)。
-
-LIBERO-Plus（840 个扰动实例，冻结评测）：`scripts/reproduce_libero_plus.sh`（见 [docs/EVALUATION.md](./docs/EVALUATION.md)）。
 
 接入自己的真机：见 [roborsi/embodied/embodiment/README.md](./roborsi/embodied/embodiment/README.md)。
 
