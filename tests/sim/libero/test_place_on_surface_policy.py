@@ -15,7 +15,7 @@ from roborsi.embodied.skills.base._lib.libero.visual_hold import (
     clear_visual_hold,
     record_visual_hold,
 )
-from scripts.check_libero_gt_leak import scan_policy_path, scan_skill_doc_path
+from roborsi.agents.safety.libero_gt_check import scan_policy_path, scan_skill_doc_path
 
 
 class FakeEnv:
