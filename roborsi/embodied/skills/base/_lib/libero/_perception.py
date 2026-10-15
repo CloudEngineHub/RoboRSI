@@ -27,12 +27,17 @@ _POINT_SAM: dict[str, Any] = {}
 def _torch_device() -> str:
     """Device for the perception models; ROBORSI_PERCEPTION_DEVICE overrides
     the default (CUDA when available) so they can run on CPU when the GPU is
-    shared."""
+    shared. ``spread`` places each episode process on one of the visible GPUs
+    (by process id), so parallel workers share the GPUs' memory."""
     override = os.environ.get("ROBORSI_PERCEPTION_DEVICE", "").strip()
-    if override:
+    if override and override != "spread":
         return override
     import torch
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    if not torch.cuda.is_available():
+        return "cpu"
+    if override == "spread":
+        return f"cuda:{os.getpid() % torch.cuda.device_count()}"
+    return "cuda"
 
 
 _QUERY_STOPWORDS = {

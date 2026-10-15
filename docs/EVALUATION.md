@@ -134,7 +134,7 @@ Environment used by the reproduction scripts:
 | `ROBORSI_PYROKI_PORT` | Port of the PyRoKi IK / trajectory service. |
 | `GRASPGEN_HOST`, `GRASPGEN_PORT` | GraspGen grasp service. Leave `GRASPGEN_PORT` empty to disable it; grasps then use the fallback planner. |
 | `ROBORSI_EVAL_WORKERS` | Parallel episodes (default 8). Each worker loads its own perception models (about 5 GB of GPU memory). |
-| `ROBORSI_PERCEPTION_DEVICE` | Device for the perception models (default CUDA when available); set `cpu` when GPU memory is short. |
+| `ROBORSI_PERCEPTION_DEVICE` | Device for the perception models (default CUDA when available); set `cpu` when GPU memory is short, or `spread` to place each episode process on one of the visible GPUs (`CUDA_VISIBLE_DEVICES`) so that parallel workers share their memory. |
 | `ROBORSI_EPISODE_MAX_ROUNDS` | Maximum Planner–Engineer–Reviewer rounds within one episode (default 6). |
 | `ROBORSI_ROLE_SESSION` | Planner and Reviewer run as persistent agent-CLI sessions, one per role and task, and the Manager as one persistent session across all tasks; all are compacted once they exceed `ROBORSI_SESSION_ROLL_CHARS` (default 600000) (`codex` for OpenAI models, `claude` otherwise; override with `ROBORSI_ROLE_BACKEND`). The same sessions are used in frozen mode. `0` uses stateless API calls. |
 | `ROBORSI_GATE_SEEDS`, `ROBORSI_GATE_MIN_PASS` | Development seeds (default 21,22) and required successes for the episode-level gate the Manager uses when a skill change has no harness of its own. |
