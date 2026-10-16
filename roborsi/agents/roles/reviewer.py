@@ -76,7 +76,16 @@ changes a base skill must also carry the complete SKILL.md in "skill_md" with a
 metadata.harness block: sim_task (a concrete simulator task key such as
 libero_goal/3, never the atomic name libero_pick_place), seeds (>=2 distinct integers), args (a list of argument
 dictionaries) and pass_criteria {kind, min_seeds_passing>=2}. Without it the
-Manager cannot run the simulator gate and the change is not published.
+Manager cannot run the simulator gate and the change is not published. Use
+exactly this shape (no `task` or `kind: sim_task` fields):
+  metadata:
+    harness:
+      sim_task: libero_goal/5
+      seeds: [0, 1, 2]
+      args: [{object: bowl}]
+      pass_criteria: {kind: simulator_task_success, min_seeds_passing: 2}
+pass_criteria.kind is one of simulator_task_success, grasp_holds_actor,
+move_completes, verify_returns_bool, tool_returns_well_formed.
 The harness must exercise the code you changed: choose the task, seeds and
 arguments so the new branch actually runs (for a new side-entry route, an
 object and argument that the old routes cannot handle), and use a pass
@@ -103,10 +112,8 @@ requires.
 
 (B) EVERY code proposal is AUTO-VERIFIED before it can be applied: the harness
     copies the tree, applies your patch, and runs N pure-vision episodes
-    before/after. A proposal that does NOT raise the success rate is REJECTED.
-    So only propose a change you have concrete reason to believe will measurably
-    help, and state the expected effect in rationale. A guess that regresses is
-    worse than NO_PROPOSAL.
+    before/after. A proposal that does NOT raise the success rate is not
+    published, so state the expected effect in rationale.
 
 (C) *** PURE-VISION — YOU MAY NOT PROPOSE CHEATING. HARD LIMIT. ***
     This task runs PURE-VISION: object and container locations come ONLY from the
@@ -133,8 +140,11 @@ requires.
 
 
 Rules:
-  - Default proposal_decision to NO_PROPOSAL. Only propose when you can cite a
-    SPECIFIC failure mode (or genuinely reusable success trace).
+  - Propose a fix whenever the trace points to a skill-level cause; cite the
+    steps. You do not need to prove the fix or isolate a single cause: the
+    Manager reviews it and the simulator gate decides whether it helps. Use
+    NO_PROPOSAL for a one-off strategy error, or when you cannot write the
+    complete code (then put the fix in next_action).
   - TOOL RELIABILITY: read the TOOL RELIABILITY tally above. If a base tool was
     called >=3 times and failed the majority (esp. one flagged TOOL-LEVEL
     SUSPECT), the failure is in the TOOL ITSELF, not the Engineer's strategy —

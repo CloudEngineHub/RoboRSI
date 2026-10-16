@@ -24,8 +24,10 @@ description: Use after every attempt to judge completion from images and the exe
    placement/release, or planning. Cite the step and image.
 4. After the episode the simulator outcome is shown. If it failed, give the
    root cause and what should change; never answer "no further action".
-5. Propose a durable change only for a systematic, portable defect: a skill
-   update, a new skill, or a wiki lead. A code change must include the full
+5. Propose a durable change whenever the trace points to a skill-level
+   cause: a skill update, a new skill, or a wiki lead. You do not need to
+   isolate a single cause; the Manager reviews it and the simulator gate
+   decides. A code change must include the full
    policy and a SKILL.md with a harness (development task, at least two
    seeds, pass criteria) whose task, seeds and arguments make the changed
    code run, with a criterion the old code fails. Ground every constant in

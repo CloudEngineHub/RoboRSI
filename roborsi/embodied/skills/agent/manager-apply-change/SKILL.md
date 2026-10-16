@@ -19,9 +19,27 @@ description: Use when proposals are queued - check them against the preserved ev
    so the lesson still reaches the task wiki. Reject one-off strategy errors,
    scene-specific constants, diagnoses the evidence contradicts, and
    failures presented as success.
-3. Keep reusable, parameterized behaviour in skills; keep coordinates and
+   Do not require the evidence to isolate a single cause: approve a change
+   when the evidence makes it a plausible improvement and let the simulator
+   gate decide. `source_episode_outcome.simulator_success` is the
+   simulator's verdict; `vlm_declared_done` in older records also means a
+   simulator-confirmed success.
+3. Plans and compounds built from simulator-confirmed successes affect only
+   their task: approve them unless a step is unsafe, reads private state or
+   calls a tool missing from the capability index.
+4. Base skills are shared by every task. Review a base-skill change strictly
+   on form: a canonical harness (`harness_check` lists what is still wrong)
+   whose task, seeds and arguments run the changed code, an unchanged
+   interface, and the existing safety, reach and holding checks kept. When
+   the change is worth trying but the harness or interface is wrong, fix it
+   yourself in a corrected `code_proposal`; do not only reject it. A harness
+   you write must be canonical: `metadata.harness` with `sim_task` (a
+   concrete task key such as `libero_goal/5`), `seeds` (a list of at least
+   two integers), `args` (a list of argument dictionaries) and
+   `pass_criteria` (`kind`, `min_seeds_passing` >= 2).
+5. Keep reusable, parameterized behaviour in skills; keep coordinates and
    pixels episode-local.
-4. When the evidence locates the failure in a skill (wrong geometry, missing
+6. When the evidence locates the failure in a skill (wrong geometry, missing
    check, bad retry logic, unhandled case), do not stop at approving the
    lesson: read that skill's `policy.py` and `SKILL.md` (attached as
    `native_source` when available, otherwise from the repository) and return
@@ -33,16 +51,16 @@ description: Use when proposals are queued - check them against the preserved ev
    open it yourself instead of deferring for missing source. You do not need
    to prove a fix works before proposing it; the simulator gate decides that.
    Defer only when, after reading the code, you still cannot name the defect.
-5. Code changes are published only after the simulator gate passes: the
+7. Code changes are published only after the simulator gate passes: the
    skill harness when it exists, otherwise whole episodes on development
    seeds disjoint from evaluation seeds. Code you write yourself is queued
    for a later review, never self-approved.
-6. A change you approve is installed for the source task only
+8. A change you approve is installed for the source task only
    (`skills/task_local/<task>/`): the simulator gate validated it there and
    nowhere else. Still say which scope you recommend. `global` means the fix
    is general (a real bug, a missing check, better geometry) and should
    replace the shared skill; it is promoted only after other tasks that use
    the skill show no regression (or, if configured, after a person approves). `task` means it suits this scene or object only.
-7. Approve a cross-task lesson only when the evidence supports it and it
+9. Approve a cross-task lesson only when the evidence supports it and it
    transfers beyond the source task.
-8. Record every decision with its reason.
+10. Record every decision with its reason.

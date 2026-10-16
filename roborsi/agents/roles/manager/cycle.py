@@ -18,7 +18,7 @@ def parse(text):
  text=text.strip()
  if text.startswith('```'):text=re.sub(r'^```(?:json)?\s*|\s*```$','',text)
  return json.loads(text)
-NATIVE_REVIEW_SYSTEM = 'You are RoboRSI Manager following the original RoboHarness workflow. Engineer executes; Reviewer examines actual execution, diagnoses failures and AUTHORS skill changes; Manager reviews the complete process and can also suggest and AUTHOR changes. There is NO separate Developer role. Both Reviewer and Manager may add native base skills and UPDATE existing skills using the same name, including native perception, geometry and control implementations. They are not limited to composing existing tools. Read the supplied source and failure observations, diagnose implementation problems and return concrete native new_code when useful. Preserve the namespace dispatch ABI, real observations, collision/reachability/holding checks and honest failure reporting. Do not use hidden task predicates, hidden object state, simulator task source, teleports or fabricated success. Approval of an existing proposal allows its real harness trial; publication follows only after that declared harness passes. A primitive is checked by its own functional harness, while task compounds use task-success gates. Preserve all declared tasks, seeds, arguments and pass criteria. Any code YOU author is queued for a later separate review and never self-approved in this response. Every approved base-skill code change also needs a scope: "global" when the fix is general and should change the shared skill for every task, "task" when it only suits the source task and must not affect others. Return JSON only: {"decision":"approve"|"reject"|"defer","reason":"...","scope":"global"|"task","corrected_lead":null or {"root_cause":"...","next_action":"..."},"lesson_decision":"approve"|"reject"|"defer","lesson_evidence":"...","cross_task_lesson":"...","code_proposal":null or {"name":"skill_name","kind":"new"|"update","category":"base/libero","new_code":"complete policy.py","skill_md":"complete typed SKILL.md and harness","rationale":"..."}}.'
+NATIVE_REVIEW_SYSTEM = 'You are RoboRSI Manager following the original RoboHarness workflow. Engineer executes; Reviewer examines actual execution, diagnoses failures and AUTHORS skill changes; Manager reviews the complete process and can also suggest and AUTHOR changes. There is NO separate Developer role. Both Reviewer and Manager may add native base skills and UPDATE existing skills using the same name, including native perception, geometry and control implementations. They are not limited to composing existing tools. Read the supplied source and failure observations, diagnose implementation problems and return concrete native new_code when useful. Preserve the namespace dispatch ABI, real observations, collision/reachability/holding checks and honest failure reporting. Do not use hidden task predicates, hidden object state, simulator task source, teleports or fabricated success. Approval of an existing proposal allows its real harness trial; publication follows only after that declared harness passes. A primitive is checked by its own functional harness, while task compounds use task-success gates. Preserve all declared tasks, seeds, arguments and pass criteria. Any code YOU author is queued for a later separate review and never self-approved in this response. Every approved base-skill code change also needs a scope: "global" when the fix is general and should change the shared skill for every task, "task" when it only suits the source task and must not affect others. Outcomes: source_episode_outcome.simulator_success is the verdict of the simulator, evaluated after the last round; in older records `vlm_declared_done` means the simulator confirmed success and the Engineer declared done, `predicate_passed_without_done` a simulator success without a declaration, and `vlm_overclaimed` a declared success the simulator rejected. Review standard: do not require the evidence to isolate a single cause. Approve a change when the evidence makes it a plausible improvement; the simulator gate decides whether it helps. Plans and compounds that come from simulator-confirmed successes affect only their task: approve them unless a step is unsafe, uses private state or calls a tool that does not exist. Base skills are shared by every task, so review a base-skill change strictly on form: its harness must be canonical (harness_check lists what is still wrong) and must run the changed code, and the skill must keep its interface and its safety, reach and holding checks. When a base change is worth trying but its harness or interface is wrong, do not just reject it: return a corrected code_proposal with a canonical harness. Return JSON only: {"decision":"approve"|"reject"|"defer","reason":"...","scope":"global"|"task","corrected_lead":null or {"root_cause":"...","next_action":"..."},"lesson_decision":"approve"|"reject"|"defer","lesson_evidence":"...","cross_task_lesson":"...","code_proposal":null or {"name":"skill_name","kind":"new"|"update","category":"base/libero","new_code":"complete policy.py","skill_md":"complete typed SKILL.md and harness","rationale":"..."}}.'
 
 def validate_code(q):
     import yaml
@@ -58,6 +58,30 @@ def validate_code(q):
             raise ValueError("Changed declared development fixture: " + declared)
     return ProposalValidator().validate(q)
 
+def manager_reply(user_turn,system,model):
+    """One Manager turn: the persistent Manager session (one across all tasks
+    and cycles, compacted when it grows) or a stateless call."""
+    if os.environ.get('ROBORSI_ROLE_SESSION','1')!='0':
+        from roborsi.agents.sessions import persistent_agent
+        return persistent_agent.run_role('manager','manager',user_turn,system_prompt=system,model=model)
+    from roborsi.agents.roles.role_skills import with_role_skills
+    resp=_call_vlm_tools(model,[{'role':'system','content':with_role_skills('manager',system)},{'role':'user','content':user_turn}],[],thinking_budget=0,tool_choice='none')
+    content=getattr(resp,'content','') or ''
+    if isinstance(content,list):content=''.join(_extract_text_block(c) for c in content)
+    return content
+
+def outcome_view(o):
+    """The adjudicated outcome of a source episode in plain fields. The stored
+    labels name a (simulator, Engineer claim) pair; 'vlm_declared_done' means
+    the simulator confirmed success AND the Engineer declared done, and was
+    misread as an unverified claim."""
+    view={'simulator_success':bool(o.get('success')),
+          'engineer_declared_done':o.get('outcome') in ('vlm_declared_done','vlm_overclaimed','declared_done_unverified'),
+          'judged_by':'simulator success predicate, evaluated once after the last round'}
+    if o.get('verified') is False:
+        view.update(simulator_success=None,judged_by='no simulator predicate (real robot); Engineer claim only')
+    return view
+
 def normalize_public_result(tool, result):
     """Remove only verified literal no-privilege disclaimers from public results."""
     if not isinstance(result,dict):return result
@@ -82,7 +106,7 @@ def cycle():
      q=json.loads(p.read_text())
      if q.get('status','pending')!='pending' or q.get('manager_reviewed_at'):continue
      if folder=='skill_review' or q.get('kind')=='code_revision_request':q['development_mode']='native'
-     from roborsi.agents.roles.manager.patch_context import materialize_policy_patch, review_text, HARNESS_CONTRACT
+     from roborsi.agents.roles.manager.patch_context import materialize_policy_patch, review_text, HARNESS_CONTRACT, normalize_harness
      from roborsi.agents.roles.manager.native import attach_failure_source
      q=attach_failure_source(q,R)
      if q.get('development_mode')=='native':
@@ -133,7 +157,13 @@ def cycle():
      if not dropped:
       visible['source_task_key']=source_task_key
       outcomes=[json.loads((w/'episode_result.json').read_text()) for w in roots if (w/'episode_result.json').exists()]
-      if outcomes:visible['source_episode_outcome']=outcomes
+      if outcomes:visible['source_episode_outcome']=[outcome_view(o) for o in outcomes]
+      if folder=='skill_review' and q.get('skill_md'):
+       # Mechanical harness errors are repaired here; the rest must be fixed
+       # by whoever writes the code, so the Manager sees them explicitly.
+       q['skill_md'],problems=normalize_harness(q['skill_md'],source_task_key)
+       visible['skill_md']=q['skill_md']
+       visible['harness_check']=problems or 'canonical'
       visible['observed_tool_evidence']=safe_evidence
       visible['evidence_scope']='all preserved public tool records, with whole contaminated records excluded'
       visible['evidence_exclusions_count']=len(excluded_evidence)
@@ -147,8 +177,13 @@ def cycle():
      # One namespace scan per proposal, refreshed after any preceding publication.
      # get_ns rescans the entire skill tree; doing that per tool stalls on NFS.
      skills_by_name={skill.name:skill for skill in discover_ns('libero')}
+     # The Engineer also calls the atomic task's compound skills (for example
+     # visual_pick_place); list them too, or plans using them look invalid.
+     atomic=next((str(x) for x in (q.get('atomic'),q.get('task')) if x and '/' not in str(x)),'libero_pick_place')
+     from roborsi.embodied.skills import discover_compounds
+     skills_by_name.update({skill.name:skill for skill in discover_compounds(atomic)})
      contracts=[]
-     for spec in _build_tool_specs(ns='libero'):
+     for spec in _build_tool_specs(ns='libero',task=atomic):
       function=spec['function'];skill=skills_by_name.get(function['name'])
       if skill is None:continue
       contracts.append({'name':function['name'],'parameters':function['parameters'],
@@ -163,15 +198,7 @@ def cycle():
      log("manager_review_context",proposal=p.name,system_sha256=hashlib.sha256(actual_system.encode()).hexdigest(),native_source_sha256=q.get("native_source_sha256"),native_source_path=q.get("native_source_path"),proposal_kind=q.get("kind"))
      with capture_usage() as usage:
       user_turn='Prior Manager decisions:\n'+'\n'.join(prior)+'\nPublic capability index:\n'+tools_block+'\nProposal:\n'+clean
-      if os.environ.get('ROBORSI_ROLE_SESSION','1')!='0':
-       # One persistent Manager session across all tasks and cycles, so the
-       # Manager remembers its earlier reviews (compacted when it grows).
-       from roborsi.agents.sessions import persistent_agent
-       content=persistent_agent.run_role('manager','manager',user_turn,system_prompt=actual_system,model=model)
-      else:
-       resp=_call_vlm_tools(model,[{'role':'system','content':with_role_skills('manager',actual_system)},{'role':'user','content':user_turn}],[],thinking_budget=0,tool_choice='none')
-       content=getattr(resp,'content','') or ''
-       if isinstance(content,list):content=''.join(_extract_text_block(c) for c in content)
+      content=manager_reply(user_turn,actual_system,model)
      responses=home()/'manager_responses';responses.mkdir(exist_ok=True)
      response_path=responses/(p.stem+'-'+str(time.time_ns())+'.json')
      response_path.write_text(json.dumps({'proposal':p.name,'model':model,'utc':time.time(),'raw_response':content,'usage':usage.to_dict()},indent=2))
@@ -272,11 +299,20 @@ def cycle():
       elif candidate.get('kind')=='update' and get_ns(name,'libero') is None:
        log('manager_candidate_rejected',reason='Existing skill to update was not found',name=name)
       else:
-       code=str(candidate.get('new_code',''));md=str(candidate.get('skill_md',''))
+       code=str(candidate.get('new_code',''))
+       md,problems=normalize_harness(candidate.get('skill_md',''),source_task_key)
+       if problems:
+        # The Manager must hand over a runnable harness: ask it once to fix the format.
+        fix=manager_reply('Your code_proposal for '+name+' has harness problems: '+'; '.join(problems)+'. '+HARNESS_CONTRACT+' Return JSON only: {"skill_md":"the complete corrected SKILL.md"}',actual_system,model)
+        try:md,problems=normalize_harness(parse(fix).get('skill_md',''),source_task_key)
+        except (ValueError,TypeError,AttributeError):problems=problems or ['unusable harness correction']
+        log('manager_harness_corrected' if not problems else 'manager_harness_invalid',proposal=p.name,problems=problems)
+       candidate['skill_md']=md
        raw_candidate=home()/'manager_candidates'/(p.stem+'-'+str(time.time_ns())+'.json')
        raw_candidate.parent.mkdir(exist_ok=True)
        raw_candidate.write_text(json.dumps({'source_proposal':p.name,'candidate':candidate,'model':model,'utc':time.time()},indent=2))
        try:
+        if problems:raise ValueError('harness is not canonical: '+'; '.join(problems))
         from roborsi.agents.roles.manager.native import assert_native_candidate
         assert_native_candidate(code)
         candidate['development_mode']='native'

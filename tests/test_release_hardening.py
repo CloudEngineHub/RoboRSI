@@ -201,3 +201,50 @@ def test_tasks_using_skill_finds_other_tasks(monkeypatch, tmp_path):
         (rd / "trace.json").write_text(_json.dumps([{"tool_call": {"tool": tool}}]))
     found = tasks_using_skill("grasp_object", "libero_goal/4", 5)
     assert set(found) == {"libero_goal/1", "libero_goal/3"}
+
+
+def test_harness_normalizer_repairs_mechanical_errors():
+    from roborsi.agents.roles.manager.patch_context import normalize_harness
+
+    md = """---
+name: rotate_attached_knob
+metadata:
+  harness:
+    kind: sim_task
+    task: turn_on_the_stove
+    seeds: "17, 43, 89"
+    args: {object: knob}
+    pass_criteria: {kind: simulator_task_success, min_seeds_passing: 2}
+---
+body
+"""
+    fixed, problems = normalize_harness(md, "libero_goal/7")
+    assert problems == []
+    import yaml
+    h = yaml.safe_load(fixed.split("---", 2)[1])["metadata"]["harness"]
+    assert h["sim_task"] == "libero_goal/7"
+    assert h["seeds"] == [17, 43, 89]
+    assert h["args"] == [{"object": "knob"}]
+    assert "task" not in h and "kind" not in h
+    assert fixed.endswith("body\n")
+
+
+def test_harness_normalizer_reports_what_the_author_must_fix():
+    from roborsi.agents.roles.manager.patch_context import normalize_harness
+
+    md = "---\nname: x\nmetadata:\n  harness:\n    sim_task: libero_goal/1\n    seeds: [3]\n    pass_criteria: {kind: looks_fine, min_seeds_passing: 1}\n---\n"
+    _, problems = normalize_harness(md, "libero_goal/1")
+    joined = " ".join(problems)
+    assert "seeds" in joined and "args" in joined
+    assert "pass_criteria.kind" in joined and "min_seeds_passing" in joined
+    assert normalize_harness("no frontmatter", "libero_goal/1")[1]
+
+
+def test_manager_sees_simulator_verdict_in_plain_fields():
+    from roborsi.agents.roles.manager.cycle import outcome_view
+
+    view = outcome_view({"success": True, "outcome": "vlm_declared_done"})
+    assert view["simulator_success"] is True and view["engineer_declared_done"] is True
+    assert outcome_view({"success": False, "outcome": "vlm_overclaimed"})["simulator_success"] is False
+    real = outcome_view({"success": True, "outcome": "declared_done_unverified", "verified": False})
+    assert real["simulator_success"] is None
