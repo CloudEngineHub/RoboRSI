@@ -56,7 +56,20 @@ def validate_code(q):
                             ("development_pass_criteria", "pass_criteria")]:
         if q.get(declared) is not None and h.get(field) != q[declared]:
             raise ValueError("Changed declared development fixture: " + declared)
-    return ProposalValidator().validate(q)
+    report=ProposalValidator().validate(q)
+    harness=getattr(report,'harness',None)
+    if (not report.overall_pass and getattr(report,'capability',None) is not None
+            and report.capability.passed and harness is not None
+            and (harness.extras or {}).get('verdict')=='FAIL'):
+        # The skill's own harness missed its bar. A fix can still help when the
+        # task fails for other reasons too, so compare with the current skill:
+        # on the source task's development seeds it must succeed at least once
+        # and do at least as well. Crashes and malformed harnesses stay blocked.
+        from roborsi.agents.evolution.episode_gate import source_task_gate
+        fallback=source_task_gate(q,q.get('source_task') or q.get('task'))
+        fallback.note='harness: '+harness.detail[:200]+'; '+fallback.note
+        return fallback
+    return report
 
 def manager_reply(user_turn,system,model):
     """One Manager turn: the persistent Manager session (one across all tasks

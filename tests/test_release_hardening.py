@@ -282,3 +282,29 @@ def test_spread_picks_the_gpu_with_most_free_memory(monkeypatch):
     assert runtime.spread_gpu() in ((1, 1), (3, 5))
     monkeypatch.delenv("ROBORSI_PERCEPTION_DEVICE")
     assert runtime.spread_gpu() is None
+
+
+def test_failed_skill_harness_falls_back_to_comparison_with_current_skill(monkeypatch):
+    from roborsi.agents.evolution import episode_gate, validator
+    from roborsi.agents.roles.manager import cycle
+
+    class Check:
+        def __init__(self, passed, verdict=None):
+            self.passed, self.detail, self.extras = passed, "verdict=FAIL (0/3)", {"verdict": verdict}
+
+    class Report:
+        def __init__(self, verdict):
+            self.overall_pass, self.capability, self.harness = False, Check(True), Check(False, verdict)
+
+    md = ("---\nname: push_object\nmetadata:\n  harness:\n    sim_task: libero_goal/5\n"
+          "    seeds: [0, 1, 2]\n    args: [{}]\n"
+          "    pass_criteria: {kind: simulator_task_success, min_seeds_passing: 2}\n---\n")
+    calls = []
+    monkeypatch.setattr(episode_gate, "source_task_gate",
+                        lambda q, t: calls.append(t) or episode_gate.EpisodeGateReport(True, "candidate 1, current 0"))
+    monkeypatch.setattr(validator.ProposalValidator, "validate", lambda self, q: Report("FAIL"))
+    out = cycle.validate_code({"name": "push_object", "skill_md": md, "source_task": "libero_goal/5"})
+    assert out.overall_pass and calls == ["libero_goal/5"] and out.note.startswith("harness:")
+    # A crashing or malformed harness is not rescued by the comparison.
+    monkeypatch.setattr(validator.ProposalValidator, "validate", lambda self, q: Report("ERROR"))
+    assert not cycle.validate_code({"name": "push_object", "skill_md": md, "source_task": "libero_goal/5"}).overall_pass
