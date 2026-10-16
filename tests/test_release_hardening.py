@@ -270,10 +270,15 @@ def test_source_task_gate_compares_with_current_skill(monkeypatch):
 
 def test_spread_picks_the_gpu_with_most_free_memory(monkeypatch):
     import subprocess
-    from roborsi.embodied.skills.base._lib.libero import _perception as p
+    from roborsi.embodied.sim.libero import runtime
 
     class Out:
         stdout = "0, 1000\n1, 90000\n4, 30000\n5, 89000\n"
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: Out())
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,4,5")
-    assert p._roomiest_gpu(4) in (1, 3)
+    monkeypatch.setenv("ROBORSI_PERCEPTION_DEVICE", "spread")
+    monkeypatch.setattr(runtime, "_SPREAD_GPU", None)
+    # Visible index and physical id, used for perception and for rendering.
+    assert runtime.spread_gpu() in ((1, 1), (3, 5))
+    monkeypatch.delenv("ROBORSI_PERCEPTION_DEVICE")
+    assert runtime.spread_gpu() is None

@@ -171,6 +171,39 @@ def configure_headless_rendering() -> dict[str, str]:
     }
 
 
+_SPREAD_GPU: tuple[int, int] | None = None
+
+
+def spread_gpu() -> tuple[int, int] | None:
+    """GPU for this episode process when ROBORSI_PERCEPTION_DEVICE=spread:
+    ``(index within CUDA_VISIBLE_DEVICES, physical id)`` of the visible GPU
+    with the most free memory, chosen once per process so that rendering and
+    perception share it. GPUs within 8 GB of the best count as equal and are
+    picked by process id, since workers start together."""
+    global _SPREAD_GPU
+    if os.environ.get("ROBORSI_PERCEPTION_DEVICE", "").strip() != "spread":
+        return None
+    if _SPREAD_GPU is None:
+        visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+        try:
+            out = subprocess.run(
+                ["nvidia-smi", "--query-gpu=index,memory.free",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=20).stdout
+            free = {int(i): int(m) for i, m in
+                    (line.split(",") for line in out.strip().splitlines())}
+            ids = [int(x) for x in visible.split(",")] if visible else sorted(free)
+            room = [free[i] for i in ids]
+            near = [k for k, m in enumerate(room) if m >= max(room) - 8192]
+            k = near[os.getpid() % len(near)]
+            _SPREAD_GPU = (k, ids[k])
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            ids = [int(x) for x in visible.split(",")] if visible else [0]
+            k = os.getpid() % len(ids)
+            _SPREAD_GPU = (k, ids[k])
+    return _SPREAD_GPU
+
+
 def runtime_status() -> dict[str, Any]:
     status: dict[str, Any] = {
         "config_path": str(config_path()),

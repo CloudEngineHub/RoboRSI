@@ -27,8 +27,8 @@ _POINT_SAM: dict[str, Any] = {}
 def _torch_device() -> str:
     """Device for the perception models; ROBORSI_PERCEPTION_DEVICE overrides
     the default (CUDA when available) so they can run on CPU when the GPU is
-    shared. ``spread`` places each episode process on the visible GPU with the
-    most free memory, so parallel workers share the GPUs' memory."""
+    shared. ``spread`` uses the GPU chosen for this episode process (see
+    ``runtime.spread_gpu``), the same one that renders the scene."""
     override = os.environ.get("ROBORSI_PERCEPTION_DEVICE", "").strip()
     if override and override != "spread":
         return override
@@ -36,30 +36,9 @@ def _torch_device() -> str:
     if not torch.cuda.is_available():
         return "cpu"
     if override == "spread":
-        return f"cuda:{_roomiest_gpu(torch.cuda.device_count())}"
+        from roborsi.embodied.sim.libero.runtime import spread_gpu
+        return f"cuda:{spread_gpu()[0]}"
     return "cuda"
-
-
-def _roomiest_gpu(count: int) -> int:
-    """Index (within CUDA_VISIBLE_DEVICES) of a GPU with the most free memory.
-    Workers start together, so GPUs within 8 GB of the best are treated as
-    equal and chosen by process id. Falls back to the process id alone."""
-    import subprocess
-
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,memory.free",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=20).stdout
-        free = {int(i): int(m) for i, m in
-                (line.split(",") for line in out.strip().splitlines())}
-        visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
-        ids = [int(x) for x in visible.split(",")] if visible else sorted(free)
-        room = [free[i] for i in ids[:count]]
-        near = [k for k, m in enumerate(room) if m >= max(room) - 8192]
-        return near[os.getpid() % len(near)]
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
-        return os.getpid() % count
 
 
 _QUERY_STOPWORDS = {

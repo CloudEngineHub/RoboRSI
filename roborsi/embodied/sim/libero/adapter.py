@@ -920,7 +920,14 @@ class LiberoProBackend(Backend):
         _res = int(os.environ.get("ROBORSI_LIBERO_RES", "256"))
         cam_h = cfg.get("camera_heights", _res)
         cam_w = cfg.get("camera_widths", _res)
+        from roborsi.embodied.sim.libero.runtime import spread_gpu
+
+        # Render on the episode's GPU; robosuite otherwise renders every
+        # process on the first visible GPU.
+        gpu = spread_gpu()
+        render_kwargs = {"render_gpu_device_id": gpu[1]} if gpu else {}
         env = OffScreenRenderEnv(
+            **render_kwargs,
             bddl_file_name=bddl,
             controller="JOINT_POSITION",   # Jacobian-IK servo (LiberoControl); OSC wedged at joint limits
             ignore_done=True,
