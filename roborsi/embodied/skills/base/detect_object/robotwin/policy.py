@@ -33,7 +33,23 @@ import torch
 from PIL import Image
 
 _MODELS: dict[str, Any] = {}
-_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _device() -> str:
+    """Same device rule as the LIBERO perception helpers:
+    ROBORSI_PERCEPTION_DEVICE (a device, or ``spread`` for this process's GPU),
+    else CUDA when available."""
+    import os
+    override = os.environ.get("ROBORSI_PERCEPTION_DEVICE", "").strip()
+    if not torch.cuda.is_available():
+        return "cpu" if override in ("", "spread") else override
+    if override == "spread":
+        from roborsi.embodied.sim.libero.runtime import spread_gpu
+        return f"cuda:{spread_gpu()[0]}"
+    return override or "cuda"
+
+
+_DEVICE = _device()
 
 
 # ── per-frame detect cache ────────────────────────────────────────────
