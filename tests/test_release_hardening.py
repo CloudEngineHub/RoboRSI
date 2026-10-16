@@ -248,3 +248,32 @@ def test_manager_sees_simulator_verdict_in_plain_fields():
     assert outcome_view({"success": False, "outcome": "vlm_overclaimed"})["simulator_success"] is False
     real = outcome_view({"success": True, "outcome": "declared_done_unverified", "verified": False})
     assert real["simulator_success"] is None
+
+
+def test_source_task_gate_compares_with_current_skill(monkeypatch):
+    from roborsi.agents.evolution import episode_gate as g
+
+    def fake(passes):
+        def run(q, task, *, apply_candidate=True, min_pass=None, seeds=None):
+            n = passes[apply_candidate]
+            verdicts = {s: ("success" if k < n else "failure") for k, s in enumerate(seeds)}
+            return g.EpisodeGateReport(True, "", {"passes": n, "verdicts": verdicts})
+        return run
+
+    monkeypatch.setattr(g, "run", fake({True: 1, False: 0}))
+    assert g.source_task_gate({}, "libero_goal/5").overall_pass
+    monkeypatch.setattr(g, "run", fake({True: 1, False: 2}))
+    assert not g.source_task_gate({}, "libero_goal/5").overall_pass
+    monkeypatch.setattr(g, "run", fake({True: 0, False: 0}))
+    assert not g.source_task_gate({}, "libero_goal/5").overall_pass
+
+
+def test_spread_picks_the_gpu_with_most_free_memory(monkeypatch):
+    import subprocess
+    from roborsi.embodied.skills.base._lib.libero import _perception as p
+
+    class Out:
+        stdout = "0, 1000\n1, 90000\n4, 30000\n5, 89000\n"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Out())
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,4,5")
+    assert p._roomiest_gpu(4) in (1, 3)

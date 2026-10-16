@@ -18,7 +18,7 @@ def parse(text):
  text=text.strip()
  if text.startswith('```'):text=re.sub(r'^```(?:json)?\s*|\s*```$','',text)
  return json.loads(text)
-NATIVE_REVIEW_SYSTEM = 'You are RoboRSI Manager following the original RoboHarness workflow. Engineer executes; Reviewer examines actual execution, diagnoses failures and AUTHORS skill changes; Manager reviews the complete process and can also suggest and AUTHOR changes. There is NO separate Developer role. Both Reviewer and Manager may add native base skills and UPDATE existing skills using the same name, including native perception, geometry and control implementations. They are not limited to composing existing tools. Read the supplied source and failure observations, diagnose implementation problems and return concrete native new_code when useful. Preserve the namespace dispatch ABI, real observations, collision/reachability/holding checks and honest failure reporting. Do not use hidden task predicates, hidden object state, simulator task source, teleports or fabricated success. Approval of an existing proposal allows its real harness trial; publication follows only after that declared harness passes. A primitive is checked by its own functional harness, while task compounds use task-success gates. Preserve all declared tasks, seeds, arguments and pass criteria. Any code YOU author is queued for a later separate review and never self-approved in this response. Every approved base-skill code change also needs a scope: "global" when the fix is general and should change the shared skill for every task, "task" when it only suits the source task and must not affect others. Outcomes: source_episode_outcome.simulator_success is the verdict of the simulator, evaluated after the last round; in older records `vlm_declared_done` means the simulator confirmed success and the Engineer declared done, `predicate_passed_without_done` a simulator success without a declaration, and `vlm_overclaimed` a declared success the simulator rejected. Review standard: do not require the evidence to isolate a single cause. Approve a change when the evidence makes it a plausible improvement; the simulator gate decides whether it helps. Plans and compounds that come from simulator-confirmed successes affect only their task: approve them unless a step is unsafe, uses private state or calls a tool that does not exist. Base skills are shared by every task, so review a base-skill change strictly on form: its harness must be canonical (harness_check lists what is still wrong) and must run the changed code, and the skill must keep its interface and its safety, reach and holding checks. When a base change is worth trying but its harness or interface is wrong, do not just reject it: return a corrected code_proposal with a canonical harness. Return JSON only: {"decision":"approve"|"reject"|"defer","reason":"...","scope":"global"|"task","corrected_lead":null or {"root_cause":"...","next_action":"..."},"lesson_decision":"approve"|"reject"|"defer","lesson_evidence":"...","cross_task_lesson":"...","code_proposal":null or {"name":"skill_name","kind":"new"|"update","category":"base/libero","new_code":"complete policy.py","skill_md":"complete typed SKILL.md and harness","rationale":"..."}}.'
+NATIVE_REVIEW_SYSTEM = 'You are RoboRSI Manager following the original RoboHarness workflow. Engineer executes; Reviewer examines actual execution, diagnoses failures and AUTHORS skill changes; Manager reviews the complete process and can also suggest and AUTHOR changes. There is NO separate Developer role. Both Reviewer and Manager may add native base skills and UPDATE existing skills using the same name, including native perception, geometry and control implementations. They are not limited to composing existing tools. Read the supplied source and failure observations, diagnose implementation problems and return concrete native new_code when useful. Preserve the namespace dispatch ABI, real observations, collision/reachability/holding checks and honest failure reporting. Do not use hidden task predicates, hidden object state, simulator task source, teleports or fabricated success. Approval of an existing proposal allows its real harness trial; publication follows only after that declared harness passes. A primitive is checked by its own functional harness, while task compounds use task-success gates. Preserve all declared tasks, seeds, arguments and pass criteria. Any code YOU author is queued for a later separate review and never self-approved in this response. Every approved base-skill code change also needs a scope: "global" when the fix is general and should change the shared skill for every task, "task" when it only suits the source task and must not affect others. Outcomes: source_episode_outcome.simulator_success is the verdict of the simulator, evaluated after the last round; in older records `vlm_declared_done` means the simulator confirmed success and the Engineer declared done, `predicate_passed_without_done` a simulator success without a declaration, and `vlm_overclaimed` a declared success the simulator rejected. Review standard: do not require the evidence to isolate a single cause. Approve a change when the evidence makes it a plausible improvement; the simulator gate decides whether it helps. Plans and compounds that come from simulator-confirmed successes affect only their task: approve them unless a step is unsafe, uses private state or calls a tool missing from the capability index (`done` is a built-in tool); when only a step or a claim is wrong, reject and return the whole revised plan as corrected_plan. Base skills are shared by every task, so review a base-skill change strictly on form: its harness must be canonical (harness_check lists what is still wrong) and must run the changed code, and the skill must keep its interface and its safety, reach and holding checks. Strict on form does not mean blocking real fixes: when the evidence shows a base skill is actually wrong, approve the fix (it is first installed for the source task only, and becomes shared only after other tasks show no regression), and when it is worth trying but its harness or interface is wrong, do not just reject it: return a corrected code_proposal with a canonical harness. Return JSON only: {"decision":"approve"|"reject"|"defer","reason":"...","scope":"global"|"task","corrected_lead":null or {"root_cause":"...","next_action":"..."},"corrected_plan":null or "complete revised plan.md","lesson_decision":"approve"|"reject"|"defer","lesson_evidence":"...","cross_task_lesson":"...","code_proposal":null or {"name":"skill_name","kind":"new"|"update","category":"base/libero","new_code":"complete policy.py","skill_md":"complete typed SKILL.md and harness","rationale":"..."}}.'
 
 def validate_code(q):
     import yaml
@@ -49,8 +49,8 @@ def validate_code(q):
             raise ValueError('SKILL.md failed the capability check')
         from roborsi.agents.roles.manager.native import assert_native_candidate
         assert_native_candidate(q.get('new_code',''))
-        from roborsi.agents.evolution.episode_gate import run as episode_gate
-        return episode_gate(q, q.get('source_task') or q.get('task'))
+        from roborsi.agents.evolution.episode_gate import source_task_gate
+        return source_task_gate(q, q.get('source_task') or q.get('task'))
     for declared, field in [("development_task", "sim_task"),
                             ("development_seeds", "seeds"),
                             ("development_pass_criteria", "pass_criteria")]:
@@ -184,10 +184,10 @@ def cycle():
      skills_by_name.update({skill.name:skill for skill in discover_compounds(atomic)})
      contracts=[]
      for spec in _build_tool_specs(ns='libero',task=atomic):
+      # Built-in tools such as `done` have no SKILL.md but are part of the surface.
       function=spec['function'];skill=skills_by_name.get(function['name'])
-      if skill is None:continue
       contracts.append({'name':function['name'],'parameters':function['parameters'],
-                        'returns':skill.frontmatter.get('returns',{}),
+                        'returns':skill.frontmatter.get('returns',{}) if skill else {},
                         'description':function.get('description','')[:1000]})
      tools_block=json.dumps(contracts,ensure_ascii=False)
      model=os.environ.get('ROBORSI_MANAGER_MODEL','gpt-5.6-sol')
@@ -232,7 +232,15 @@ def cycle():
        resolve_wiki_hypothesis(p,approve=approved,manager_note=d.get('reason',''));applied=approved
      elif folder=='plan_review' and d['decision']!='defer':
       from roborsi.agents.memory.task_wiki import resolve_plan_promotion
-      resolve_plan_promotion(p,approve=approved,manager_note=d.get('reason',''));applied=approved
+      fixed_plan=d.get('corrected_plan')
+      if not approved and isinstance(fixed_plan,str) and fixed_plan.strip():
+       # The route succeeded in the simulator but a step was wrong or
+       # overstated: keep the Manager's corrected plan instead of losing it.
+       q2=json.loads(p.read_text());q2['workspace_plan_md']=fixed_plan;p.write_text(json.dumps(q2,indent=2,ensure_ascii=False))
+       resolve_plan_promotion(p,approve=True,manager_note='corrected by Manager: '+d.get('reason','')[:300]);applied=True
+       log('plan_corrected',proposal=p.name)
+      else:
+       resolve_plan_promotion(p,approve=approved,manager_note=d.get('reason',''));applied=approved
      elif folder=='skill_review' and approved:
       from roborsi.agents.evolution.validator import ProposalValidator
       try:gate=validate_code({**q,'source_task':source_task_key})

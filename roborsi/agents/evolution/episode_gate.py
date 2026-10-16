@@ -2,7 +2,7 @@
 
 Applies the candidate in a throw-away git worktree at HEAD and runs frozen
 RoboRSI episodes on the source task with development seeds that are disjoint
-from the evaluation seeds. The candidate passes when enough episodes succeed.
+from the evaluation seeds. The candidate passes when it succeeds at least once and does at least as well as the current skill (source_task_gate).
 Nothing is published here; the Manager applies the change afterwards.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 R = Path(__file__).resolve().parents[3]
-DEV_SEEDS = [int(s) for s in os.environ.get("ROBORSI_GATE_SEEDS", "21,22").split(",")]
+DEV_SEEDS = [int(s) for s in os.environ.get("ROBORSI_GATE_SEEDS", "21,22,23").split(",")]
 MIN_PASS = int(os.environ.get("ROBORSI_GATE_MIN_PASS", str(len(DEV_SEEDS))))
 
 
@@ -46,9 +46,11 @@ def _write_candidate(tree: Path, q: dict) -> None:
 
 
 def run(q: dict, task_key: str | None, *, apply_candidate: bool = True,
-        min_pass: int | None = None) -> EpisodeGateReport:
+        min_pass: int | None = None,
+        seeds: list[int] | None = None) -> EpisodeGateReport:
     """Run the gate episodes; apply_candidate=False measures the current
     shared library on the same task and seeds (the baseline)."""
+    seeds = list(seeds or DEV_SEEDS)
     need = MIN_PASS if min_pass is None else min_pass
     if not task_key:
         return EpisodeGateReport(False, "no source task to validate on")
@@ -75,8 +77,8 @@ def run(q: dict, task_key: str | None, *, apply_candidate: bool = True,
                "import sys; from roborsi.cli.commands import app; "
                "sys.argv[0] = 'roborsi'; app()", "eval-suite",
                "--backend", os.environ.get("ROBORSI_HARNESS_BACKEND", "libero-pro"),
-               "--task", task_key, "--seed-start", str(DEV_SEEDS[0]),
-               "--pass-at", str(len(DEV_SEEDS)), "--workers", str(len(DEV_SEEDS)),
+               "--task", task_key, "--seed-start", str(seeds[0]),
+               "--pass-at", str(len(seeds)), "--workers", str(len(seeds)),
                "--tool-budget", os.environ.get("ROBORSI_GATE_TOOL_BUDGET", "80"),
                "--run-mode", "frozen", "--run-all-seeds", "--planner-model", model,
                "--engineer-model", model, "--reviewer-model", model,
@@ -93,15 +95,34 @@ def run(q: dict, task_key: str | None, *, apply_candidate: bool = True,
             if row.get("verdict") in ("success", "failure"):
                 verdicts[int(row["seed"])] = row["verdict"]
         passes = sum(v == "success" for v in verdicts.values())
-        ok = passes >= need and len(verdicts) == len(DEV_SEEDS)
+        ok = passes >= need and len(verdicts) == len(seeds)
         return EpisodeGateReport(
-            ok, f"episode gate {passes}/{len(DEV_SEEDS)} on {task_key} "
-                f"seeds {DEV_SEEDS} (need {need})",
+            ok, f"episode gate {passes}/{len(seeds)} on {task_key} "
+                f"seeds {seeds} (need {need})",
             {"verdicts": verdicts, "passes": passes, "returncode": proc.returncode})
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(tree)],
                        cwd=R, capture_output=True)
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def source_task_gate(q: dict, task_key: str | None) -> EpisodeGateReport:
+    """Gate for installing a skill change on its source task: on the same
+    development seeds the candidate must succeed at least once and do at
+    least as well as the current skill. A real fix is not blocked by seeds
+    the task fails for other reasons; a change that makes things worse is."""
+    seeds = DEV_SEEDS
+    cand = run(q, task_key, min_pass=0, seeds=seeds)
+    base = run(q, task_key, apply_candidate=False, min_pass=0, seeds=seeds)
+    c, b = cand.details.get("passes"), base.details.get("passes")
+    rows = {"candidate": c, "baseline": b, "seeds": seeds,
+            "candidate_verdicts": cand.details.get("verdicts"),
+            "baseline_verdicts": base.details.get("verdicts")}
+    complete = (len(cand.details.get("verdicts") or {}) == len(seeds)
+                and len(base.details.get("verdicts") or {}) == len(seeds))
+    ok = complete and c is not None and b is not None and c >= max(1, b)
+    return EpisodeGateReport(ok, f"source-task gate on {task_key} seeds {seeds}: "
+                                 f"candidate {c}, current {b}", rows)
 
 
 def tasks_using_skill(skill: str, exclude: str | None, limit: int) -> list[str]:

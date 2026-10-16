@@ -26,13 +26,20 @@ description: Use when proposals are queued - check them against the preserved ev
    simulator-confirmed success.
 3. Plans and compounds built from simulator-confirmed successes affect only
    their task: approve them unless a step is unsafe, reads private state or
-   calls a tool missing from the capability index.
+   calls a tool missing from the capability index (`done` is built in). When
+   only a step or a claim is wrong, return the whole revised plan as
+   `corrected_plan`.
 4. Base skills are shared by every task. Review a base-skill change strictly
    on form: a canonical harness (`harness_check` lists what is still wrong)
    whose task, seeds and arguments run the changed code, an unchanged
-   interface, and the existing safety, reach and holding checks kept. When
-   the change is worth trying but the harness or interface is wrong, fix it
-   yourself in a corrected `code_proposal`; do not only reject it. A harness
+   interface, and the existing safety, reach and holding checks kept. Strict
+   on form does not mean blocking real fixes: when the evidence shows a base
+   skill is wrong, approve the fix. It is installed for the source task once
+   it succeeds at least once on the development seeds and does at least as
+   well as the current skill, and becomes shared only after other tasks show
+   no regression. When the change is worth trying but the harness or
+   interface is wrong, fix it yourself in a corrected `code_proposal`; do not
+   only reject it. A harness
    you write must be canonical: `metadata.harness` with `sim_task` (a
    concrete task key such as `libero_goal/5`), `seeds` (a list of at least
    two integers), `args` (a list of argument dictionaries) and
